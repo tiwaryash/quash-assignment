@@ -6,20 +6,21 @@ import json
 async def execute_plan(websocket: WebSocket, instruction: str):
     """Main execution loop: plan -> execute -> stream updates."""
     
-    # Step 1: Create plan
-    await websocket.send_json({
-        "type": "status",
-        "message": "Planning actions..."
-    })
-    
-    plan = await create_action_plan(instruction)
-    
-    if not plan:
+    try:
+        # Step 1: Create plan
         await websocket.send_json({
-            "type": "error",
-            "message": "Failed to create action plan"
+            "type": "status",
+            "message": "Planning actions..."
         })
-        return
+        
+        plan = await create_action_plan(instruction)
+        
+        if not plan:
+            await websocket.send_json({
+                "type": "error",
+                "message": "Failed to create action plan. Please check your OpenAI API key and try again."
+            })
+            return
     
     # Send plan to UI
     await websocket.send_json({
@@ -102,11 +103,20 @@ async def execute_plan(websocket: WebSocket, instruction: str):
             })
             break
     
-    # Cleanup
-    await browser_agent.close()
-    
-    await websocket.send_json({
-        "type": "status",
-        "message": "Execution completed"
-    })
+    except Exception as e:
+        await websocket.send_json({
+            "type": "error",
+            "message": f"Unexpected error: {str(e)}"
+        })
+    finally:
+        # Cleanup
+        try:
+            await browser_agent.close()
+        except:
+            pass
+        
+        await websocket.send_json({
+            "type": "status",
+            "message": "Execution completed"
+        })
 
