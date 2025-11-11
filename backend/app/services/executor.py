@@ -21,87 +21,87 @@ async def execute_plan(websocket: WebSocket, instruction: str):
                 "message": "Failed to create action plan. Please check your OpenAI API key and try again."
             })
             return
-    
-    # Send plan to UI
-    await websocket.send_json({
-        "type": "plan",
-        "data": plan
-    })
-    
-    # Step 2: Initialize browser
-    await browser_agent.start()
-    
-    # Step 3: Execute each action
-    for idx, action in enumerate(plan):
-        action_type = action.get("action")
         
+        # Send plan to UI
         await websocket.send_json({
-            "type": "action_status",
-            "action": action_type,
-            "status": "executing",
-            "step": idx + 1,
-            "total": len(plan),
-            "details": action
+            "type": "plan",
+            "data": plan
         })
         
-        result = None
+        # Step 2: Initialize browser
+        await browser_agent.start()
         
-        try:
-            if action_type == "navigate":
-                url = action.get("url")
-                result = await browser_agent.navigate(url)
-                
-            elif action_type == "click":
-                selector = action.get("selector")
-                result = await browser_agent.click(selector)
-                
-            elif action_type == "type":
-                selector = action.get("selector")
-                text = action.get("text")
-                result = await browser_agent.type_text(selector, text)
-                
-            elif action_type == "wait_for":
-                selector = action.get("selector")
-                timeout = action.get("timeout", 5000)
-                result = await browser_agent.wait_for(selector, timeout)
-                
-            elif action_type == "extract":
-                schema = action.get("schema", {})
-                limit = action.get("limit", None)
-                result = await browser_agent.extract(schema, limit)
-                
-            else:
-                result = {
-                    "status": "error",
-                    "error": f"Unknown action type: {action_type}"
-                }
+        # Step 3: Execute each action
+        for idx, action in enumerate(plan):
+            action_type = action.get("action")
             
-            # Send result
             await websocket.send_json({
                 "type": "action_status",
                 "action": action_type,
-                "status": "completed" if result.get("status") == "success" else "error",
+                "status": "executing",
                 "step": idx + 1,
                 "total": len(plan),
-                "result": result
+                "details": action
             })
             
-            # If error, stop execution
-            if result.get("status") == "error":
+            result = None
+            
+            try:
+                if action_type == "navigate":
+                    url = action.get("url")
+                    result = await browser_agent.navigate(url)
+                    
+                elif action_type == "click":
+                    selector = action.get("selector")
+                    result = await browser_agent.click(selector)
+                    
+                elif action_type == "type":
+                    selector = action.get("selector")
+                    text = action.get("text")
+                    result = await browser_agent.type_text(selector, text)
+                    
+                elif action_type == "wait_for":
+                    selector = action.get("selector")
+                    timeout = action.get("timeout", 5000)
+                    result = await browser_agent.wait_for(selector, timeout)
+                    
+                elif action_type == "extract":
+                    schema = action.get("schema", {})
+                    limit = action.get("limit", None)
+                    result = await browser_agent.extract(schema, limit)
+                    
+                else:
+                    result = {
+                        "status": "error",
+                        "error": f"Unknown action type: {action_type}"
+                    }
+                
+                # Send result
+                await websocket.send_json({
+                    "type": "action_status",
+                    "action": action_type,
+                    "status": "completed" if result.get("status") == "success" else "error",
+                    "step": idx + 1,
+                    "total": len(plan),
+                    "result": result
+                })
+                
+                # If error, stop execution
+                if result.get("status") == "error":
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": result.get("error", "Action failed"),
+                        "action": action_type
+                    })
+                    break
+                    
+            except Exception as e:
                 await websocket.send_json({
                     "type": "error",
-                    "message": result.get("error", "Action failed"),
+                    "message": f"Exception during {action_type}: {str(e)}",
                     "action": action_type
                 })
                 break
-                
-        except Exception as e:
-            await websocket.send_json({
-                "type": "error",
-                "message": f"Exception during {action_type}: {str(e)}",
-                "action": action_type
-            })
-            break
     
     except Exception as e:
         await websocket.send_json({
