@@ -171,15 +171,18 @@ export default function ActionCard({ action, status, step, total, details, resul
                         </div>
                       )}
                     </div>
-                    {item.link && (
-                      <a 
-                        href={item.link} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="text-xs text-blue-400 hover:text-blue-300 underline truncate block"
-                      >
-                        {item.link}
-                      </a>
+                    {(item.link || item.url) && (
+                      <div className="mt-2">
+                        <a 
+                          href={item.link || item.url} 
+                          target="_blank" 
+                          rel="noopener noreferrer"
+                          className="text-xs text-blue-400 hover:text-blue-300 underline break-all"
+                          title={item.link || item.url}
+                        >
+                          {item.link || item.url}
+                        </a>
+                      </div>
                     )}
                   </div>
                 </div>

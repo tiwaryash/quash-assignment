@@ -152,6 +152,55 @@ SITE_SELECTORS = {
             "a.product-link",
             "a[href*='http']"
         ]
+    },
+    "google_maps": {
+        "search_input": [
+            "input#searchboxinput",
+            "input[aria-label*='Search']",
+            "input[placeholder*='Search']",
+            "input[name='q']",
+            "#searchboxinput"
+        ],
+        "search_button": [
+            "button[data-value='Search']",
+            "button[aria-label*='Search']",
+            "button[jsaction*='search']"
+        ],
+        "result_container": [
+            "[data-result-index]",
+            ".section-result",
+            "[class*='section-result']",
+            "[class*='result-container']",
+            "div[role='article']",
+            "[data-result-index]"
+        ],
+        "result_name": [
+            ".qBF1Pd",
+            "h3",
+            "[class*='qBF1Pd']",
+            "[data-value='name']",
+            "div[role='article'] h3",
+            ".fontHeadlineSmall"
+        ],
+        "result_rating": [
+            ".MW4etd",
+            "[aria-label*='star']",
+            "[class*='MW4etd']",
+            "[data-value='rating']",
+            ".fontBodyMedium"
+        ],
+        "result_location": [
+            ".W4Efsd",
+            "[class*='W4Efsd']",
+            "[data-value='address']",
+            ".fontBodyMedium",
+            "[aria-label*='Address']"
+        ],
+        "result_link": [
+            "a[href*='maps.google.com']",
+            "a[data-value='url']",
+            "[role='article'] a"
+        ]
     }
 }
 
@@ -162,7 +211,7 @@ def get_selectors_for_site(site_name: str = None) -> dict:
     return SITE_SELECTORS["generic"]
 
 def detect_site_from_url(url: str) -> str:
-    """Detect which e-commerce site from URL."""
+    """Detect which site from URL."""
     url_lower = url.lower()
     if "flipkart" in url_lower:
         return "flipkart"
@@ -172,5 +221,15 @@ def detect_site_from_url(url: str) -> str:
         return "myntra"
     elif "snapdeal" in url_lower:
         return "snapdeal"
+    elif "google" in url_lower:
+        if "maps" in url_lower:
+            return "google_maps"
+        return "google"
+    elif "zomato" in url_lower:
+        return "zomato"
+    elif "swiggy" in url_lower:
+        return "swiggy"
+    elif "zomato" in url_lower or "swiggy" in url_lower:
+        return "local"
     return "generic"
 

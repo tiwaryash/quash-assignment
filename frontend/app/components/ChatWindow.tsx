@@ -16,6 +16,13 @@ interface Message {
   data?: any;
   suggestions?: string[];
   selector?: string;
+  question?: string;
+  options?: Array<{value: string; label: string}>;
+  field?: string;
+  context?: string;
+  clarification_type?: string;
+  block_type?: string;
+  alternatives?: string[];
 }
 
 export default function ChatWindow() {
@@ -94,12 +101,22 @@ export default function ChatWindow() {
     };
   }, []);
 
-  const sendMessage = () => {
-    if (input.trim() && wsRef.current && connected) {
-      wsRef.current.send(JSON.stringify({ instruction: input }));
+  const sendMessage = (clarificationValue?: string, clarificationType?: string) => {
+    const messageToSend = clarificationValue || input.trim();
+    if (messageToSend && wsRef.current && connected) {
+      const payload: any = { instruction: messageToSend };
+      if (clarificationValue) {
+        payload.is_clarification = true;
+        payload.value = clarificationValue;
+        if (clarificationType) {
+          payload.clarification_type = clarificationType;
+        }
+      }
+      
+      wsRef.current.send(JSON.stringify(payload));
       setMessages(prev => [...prev, {
         type: 'user',
-        message: input,
+        message: messageToSend,
         timestamp: Date.now()
       }]);
       setInput('');
@@ -221,14 +238,24 @@ export default function ChatWindow() {
                   </div>
                   {msg.suggestions && msg.suggestions.length > 0 && (
                     <div className="mt-3 pt-3 border-t border-red-500/30">
-                      <div className="text-xs font-semibold text-blue-300 mb-2">💡 Suggested selectors:</div>
-                      <div className="flex flex-wrap gap-2">
-                        {msg.suggestions.map((suggestion: string, i: number) => (
-                          <code key={i} className="text-xs bg-slate-800/50 text-blue-200 px-2 py-1 rounded border border-blue-500/30">
-                            {suggestion}
-                          </code>
-                        ))}
+                      <div className="text-xs font-semibold text-blue-300 mb-2">
+                        {msg.action === 'navigate' ? '💡 Suggestions:' : '💡 Suggested selectors:'}
                       </div>
+                      {msg.action === 'navigate' ? (
+                        <ul className="list-disc list-inside text-xs text-blue-200 space-y-1">
+                          {msg.suggestions.map((suggestion: string, i: number) => (
+                            <li key={i}>{suggestion}</li>
+                          ))}
+                        </ul>
+                      ) : (
+                        <div className="flex flex-wrap gap-2">
+                          {msg.suggestions.map((suggestion: string, i: number) => (
+                            <code key={i} className="text-xs bg-slate-800/50 text-blue-200 px-2 py-1 rounded border border-blue-500/30">
+                              {suggestion}
+                            </code>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                   {msg.message?.includes('API key') && (
@@ -256,6 +283,64 @@ export default function ChatWindow() {
               <div key={idx} className="flex justify-center">
                 <div className="bg-slate-800/30 border border-slate-700/30 rounded-full px-4 py-2 text-xs text-slate-500">
                   {msg.message}
+                </div>
+              </div>
+            );
+          }
+          
+          if (msg.type === 'clarification') {
+            return (
+              <div key={idx} className="animate-slide-in">
+                <div className="bg-gradient-to-r from-amber-600/20 to-yellow-600/20 border border-amber-500/50 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-2xl">❓</span>
+                    <span className="font-semibold text-amber-300">Question</span>
+                  </div>
+                  <div className="text-sm text-amber-200 mb-4">
+                    {msg.question}
+                  </div>
+                  {msg.options && msg.options.length > 0 && (
+                    <div className="space-y-2">
+                      {msg.options.map((option: {value: string; label: string}, optIdx: number) => (
+                        <button
+                          key={optIdx}
+                          onClick={() => {
+                            const clarificationType = msg.clarification_type || msg.context || (msg.field === 'site' ? 'site_selection' : null);
+                            sendMessage(option.value, clarificationType);
+                          }}
+                          className="w-full text-left px-4 py-3 bg-slate-800/50 hover:bg-slate-700/50 border border-amber-500/30 rounded-lg text-sm text-amber-200 transition-colors"
+                        >
+                          {option.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            );
+          }
+          
+          if (msg.type === 'blocked') {
+            return (
+              <div key={idx} className="animate-slide-in">
+                <div className="bg-gradient-to-r from-orange-600/20 to-red-600/20 border border-orange-500/50 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xl">🚫</span>
+                    <span className="font-semibold text-orange-300">Blocked</span>
+                  </div>
+                  <div className="text-sm text-orange-200 whitespace-pre-line mb-3">
+                    {msg.message}
+                  </div>
+                  {msg.alternatives && msg.alternatives.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-orange-500/30">
+                      <div className="text-xs font-semibold text-orange-300 mb-2">💡 Alternatives:</div>
+                      <ul className="list-disc list-inside text-xs text-orange-200 space-y-1">
+                        {msg.alternatives.map((alt: string, altIdx: number) => (
+                          <li key={altIdx}>{alt}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                 </div>
               </div>
             );
