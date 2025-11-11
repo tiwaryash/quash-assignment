@@ -106,14 +106,29 @@ async def execute_plan(websocket: WebSocket, instruction: str):
                     "result": result
                 })
                 
-                # If error, stop execution
+                # If error, show helpful message but continue if it's a selector issue
                 if result.get("status") == "error":
-                    await websocket.send_json({
+                    error_msg = result.get("error", "Action failed")
+                    suggestions = result.get("suggestions", [])
+                    alternatives = result.get("alternatives", [])
+                    
+                    error_data = {
                         "type": "error",
-                        "message": result.get("error", "Action failed"),
-                        "action": action_type
-                    })
-                    break
+                        "message": error_msg,
+                        "action": action_type,
+                        "selector": result.get("selector")
+                    }
+                    
+                    if suggestions:
+                        error_data["suggestions"] = suggestions
+                        error_msg += f"\n💡 Try these selectors instead: {', '.join(suggestions[:3])}"
+                    
+                    await websocket.send_json(error_data)
+                    
+                    # For selector errors, try to continue with next action
+                    # For other errors, stop execution
+                    if "selector" not in error_msg.lower() and "timeout" not in error_msg.lower():
+                        break
                     
             except Exception as e:
                 await websocket.send_json({

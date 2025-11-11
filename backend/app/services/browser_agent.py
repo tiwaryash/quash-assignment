@@ -36,7 +36,13 @@ class BrowserAgent:
             await self.start()
         
         try:
-            await self.page.goto(url, wait_until="networkidle", timeout=30000)
+            # Add https:// if no protocol specified
+            if not url.startswith(('http://', 'https://')):
+                url = 'https://' + url
+            
+            await self.page.goto(url, wait_until="domcontentloaded", timeout=30000)
+            # Wait a bit more for dynamic content
+            await self.page.wait_for_load_state("networkidle", timeout=10000)
             current_url = self.page.url
             title = await self.page.title()
             return {
@@ -47,7 +53,7 @@ class BrowserAgent:
         except Exception as e:
             return {
                 "status": "error",
-                "error": str(e)
+                "error": f"Navigation failed: {str(e)}"
             }
 
     async def click(self, selector: str) -> dict:
@@ -56,14 +62,25 @@ class BrowserAgent:
             return {"status": "error", "error": "Browser not initialized"}
         
         try:
-            await self.page.wait_for_selector(selector, timeout=10000)
+            # Wait for selector to be visible and stable
+            await self.page.wait_for_selector(selector, state="visible", timeout=15000)
+            # Scroll into view if needed
+            await self.page.evaluate(f"""
+                const el = document.querySelector('{selector}');
+                if (el) el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+            """)
+            await self.page.wait_for_timeout(500)  # Small delay for scroll
             await self.page.click(selector)
             return {"status": "success", "selector": selector}
         except Exception as e:
+            # Try to find alternative selectors
+            error_msg = str(e)
+            suggestions = await self._suggest_selectors(selector)
             return {
                 "status": "error",
-                "error": f"Selector not found or clickable: {str(e)}",
-                "selector": selector
+                "error": f"Selector not found: {error_msg}",
+                "selector": selector,
+                "suggestions": suggestions
             }
 
     async def type_text(self, selector: str, text: str) -> dict:
@@ -72,14 +89,41 @@ class BrowserAgent:
             return {"status": "error", "error": "Browser not initialized"}
         
         try:
-            await self.page.wait_for_selector(selector, timeout=10000)
-            await self.page.fill(selector, text)
+            # Wait for selector with multiple strategies
+            await self.page.wait_for_selector(selector, state="visible", timeout=15000)
+            
+            # Try to find the element and check if it's an input
+            element = await self.page.query_selector(selector)
+            if not element:
+                raise Exception(f"Element with selector '{selector}' not found")
+            
+            # Clear existing value first
+            await self.page.fill(selector, "")
+            # Type the text
+            await self.page.type(selector, text, delay=50)
+            
             return {"status": "success", "selector": selector, "text": text}
         except Exception as e:
+            error_msg = str(e)
+            # Try alternative selectors for common search inputs
+            alternatives = [
+                "input[type='search']",
+                "input[type='text']",
+                "input",
+                "textarea",
+                "[role='searchbox']",
+                "#search",
+                ".search-input"
+            ]
+            
+            suggestions = await self._suggest_selectors(selector)
+            
             return {
                 "status": "error",
-                "error": f"Selector not found: {str(e)}",
-                "selector": selector
+                "error": f"Selector not found: {error_msg}",
+                "selector": selector,
+                "suggestions": suggestions,
+                "alternatives": alternatives[:3]  # Show first 3 alternatives
             }
 
     async def wait_for(self, selector: str, timeout: int = 5000) -> dict:
@@ -88,14 +132,50 @@ class BrowserAgent:
             return {"status": "error", "error": "Browser not initialized"}
         
         try:
-            await self.page.wait_for_selector(selector, timeout=timeout)
+            await self.page.wait_for_selector(selector, state="visible", timeout=timeout)
             return {"status": "success", "selector": selector}
         except Exception as e:
+            suggestions = await self._suggest_selectors(selector)
             return {
                 "status": "error",
                 "error": f"Element not found within timeout: {str(e)}",
-                "selector": selector
+                "selector": selector,
+                "suggestions": suggestions
             }
+    
+    async def _suggest_selectors(self, original_selector: str) -> list:
+        """Suggest alternative selectors if the original fails."""
+        if not self.page:
+            return []
+        
+        try:
+            # Get all input elements on the page
+            inputs = await self.page.evaluate("""
+                () => {
+                    const inputs = Array.from(document.querySelectorAll('input, textarea, [contenteditable="true"]'));
+                    return inputs.slice(0, 5).map(el => ({
+                        tag: el.tagName.toLowerCase(),
+                        type: el.type || 'text',
+                        name: el.name || '',
+                        id: el.id || '',
+                        placeholder: el.placeholder || '',
+                        className: el.className || ''
+                    }));
+                }
+            """)
+            
+            suggestions = []
+            for inp in inputs:
+                if inp['id']:
+                    suggestions.append(f"#{inp['id']}")
+                if inp['name']:
+                    suggestions.append(f"{inp['tag']}[name='{inp['name']}']")
+                if inp['placeholder']:
+                    suggestions.append(f"{inp['tag']}[placeholder*='{inp['placeholder'][:20]}']")
+            
+            return list(set(suggestions))[:5]  # Return unique suggestions, max 5
+        except:
+            return []
 
     async def extract(self, schema: dict, limit: int = None) -> dict:
         """Extract data from page using CSS selectors.
