@@ -135,7 +135,7 @@ export default function ActionCard({ action, status, step, total, details, resul
         </div>
       )}
       
-      {result && result.data && Array.isArray(result.data) && result.data.length > 0 && (
+      {result && result.status === 'success' && result.data && Array.isArray(result.data) && result.data.length > 0 && (
         <div className="mt-3 pt-3 border-t border-slate-700/50">
           <div className="flex items-center justify-between mb-3">
             <div className="text-sm font-semibold text-emerald-300">
@@ -154,6 +154,9 @@ export default function ActionCard({ action, status, step, total, details, resul
                   <div className="space-y-1.5">
                     {item.name && (
                       <div className="font-semibold text-slate-200 text-sm">{item.name}</div>
+                    )}
+                    {!item.name && item.link && (
+                      <div className="font-semibold text-slate-400 text-sm italic">Product {idx + 1}</div>
                     )}
                     <div className="flex items-center gap-4 text-xs">
                       {item.price && (
@@ -183,6 +186,38 @@ export default function ActionCard({ action, status, step, total, details, resul
               ))}
             </div>
           </div>
+        </div>
+      )}
+      
+      {/* Show when extraction completed but no data */}
+      {result && result.status === 'success' && (!result.data || !Array.isArray(result.data) || result.data.length === 0) && action === 'extract' && (
+        <div className="mt-3 pt-3 border-t border-slate-700/50">
+          <div className="text-sm text-amber-300 bg-amber-500/10 p-3 rounded-lg">
+            ⚠️ Extraction completed but no data found. The selectors might not match the page structure.
+          </div>
+          {result.message && (
+            <div className="text-xs text-slate-400 mt-2">{result.message}</div>
+          )}
+          {result.count === 0 && (
+            <div className="text-xs text-slate-400 mt-2">
+              Try checking the page structure or using different selectors.
+            </div>
+          )}
+          {/* Always show debug info when empty */}
+          <details className="mt-3 text-xs">
+            <summary className="text-slate-400 cursor-pointer hover:text-slate-300">🔍 Show Debug Info</summary>
+            <pre className="mt-2 bg-slate-900/50 p-2 rounded text-slate-300 overflow-auto max-h-40 text-[10px]">
+              {JSON.stringify(result, null, 2)}
+            </pre>
+          </details>
+        </div>
+      )}
+      
+      {/* Show result info even if data is empty */}
+      {result && status === 'completed' && action !== 'extract' && (
+        <div className="mt-2 text-xs text-slate-400">
+          {result.status && <span>Status: {result.status}</span>}
+          {result.count !== undefined && <span className="ml-2">Count: {result.count}</span>}
         </div>
       )}
     </div>

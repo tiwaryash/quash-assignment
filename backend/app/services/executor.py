@@ -92,6 +92,11 @@ async def execute_plan(websocket: WebSocket, instruction: str):
                     limit = action.get("limit", None)
                     result = await browser_agent.extract(schema, limit)
                     
+                    # Log extraction result for debugging
+                    print(f"Extraction result: status={result.get('status')}, count={result.get('count')}, data_length={len(result.get('data', []))}")
+                    if result.get("data"):
+                        print(f"First item sample: {result.get('data')[0] if result.get('data') else 'None'}")
+                    
                     # Post-process extracted data: filter by price if needed
                     if result.get("status") == "success" and result.get("data"):
                         extracted_data = result["data"]
@@ -133,14 +138,15 @@ async def execute_plan(websocket: WebSocket, instruction: str):
                         "error": f"Unknown action type: {action_type}"
                     }
                 
-                # Send result
+                # Send result with full details
                 await websocket.send_json({
                     "type": "action_status",
                     "action": action_type,
                     "status": "completed" if result.get("status") == "success" else "error",
                     "step": idx + 1,
                     "total": len(plan),
-                    "result": result
+                    "result": result,
+                    "details": action  # Include original action details
                 })
                 
                 # If error, show helpful message but continue if it's a selector issue
@@ -186,6 +192,13 @@ async def execute_plan(websocket: WebSocket, instruction: str):
             await browser_agent.close()
         except:
             pass
+        
+        # Send final summary if we extracted data
+        final_extract = None
+        for action in plan:
+            if action.get("action") == "extract":
+                # We already processed this, but send a summary
+                break
         
         await websocket.send_json({
             "type": "status",

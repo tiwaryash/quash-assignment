@@ -11,9 +11,9 @@ class Settings(BaseSettings):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        # Also check environment variables directly
+        # Also check environment variables directly (for cases where .env isn't loaded)
         if not self.openai_api_key:
-            self.openai_api_key = os.getenv("OPENAI_API_KEY", "")
+            self.openai_api_key = os.getenv("OPENAI_API_KEY", os.getenv("openai_api_key", ""))
 
 settings = Settings()
 
