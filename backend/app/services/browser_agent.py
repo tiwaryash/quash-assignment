@@ -237,13 +237,24 @@ class BrowserAgent:
             return {"status": "error", "error": "Browser not initialized"}
         
         try:
+            # Pass schema and limit as a single object to avoid argument count issues
             result = await self.page.evaluate("""
-                (schema, limit) => {
+                ({schema, limit}) => {
                     const data = {};
                     for (const [key, selector] of Object.entries(schema)) {
                         const elements = document.querySelectorAll(selector);
                         if (elements.length > 0) {
-                            let values = Array.from(elements).map(el => el.textContent?.trim() || '');
+                            let values = [];
+                            if (key === 'link' || key === 'url') {
+                                // For links, get href attribute
+                                values = Array.from(elements).map(el => {
+                                    const href = el.href || el.getAttribute('href') || '';
+                                    return href.startsWith('http') ? href : (window.location.origin + href);
+                                });
+                            } else {
+                                // For text content
+                                values = Array.from(elements).map(el => el.textContent?.trim() || '');
+                            }
                             if (limit && limit > 0) {
                                 values = values.slice(0, limit);
                             }
@@ -254,7 +265,7 @@ class BrowserAgent:
                     }
                     return data;
                 }
-            """, schema, limit or 0)
+            """, {"schema": schema, "limit": limit or 0})
             
             # Transform to list of objects if multiple fields
             if result and len(result) > 0:
