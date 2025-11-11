@@ -14,6 +14,8 @@ interface Message {
   details?: any;
   result?: any;
   data?: any;
+  suggestions?: string[];
+  selector?: string;
 }
 
 export default function ChatWindow() {
@@ -213,9 +215,21 @@ export default function ChatWindow() {
                     <span className="text-xl">❌</span>
                     <span className="font-semibold text-red-300">Error</span>
                   </div>
-                  <div className="text-sm text-red-200">
+                  <div className="text-sm text-red-200 whitespace-pre-line">
                     {msg.message}
                   </div>
+                  {msg.suggestions && msg.suggestions.length > 0 && (
+                    <div className="mt-3 pt-3 border-t border-red-500/30">
+                      <div className="text-xs font-semibold text-blue-300 mb-2">💡 Suggested selectors:</div>
+                      <div className="flex flex-wrap gap-2">
+                        {msg.suggestions.map((suggestion: string, i: number) => (
+                          <code key={i} className="text-xs bg-slate-800/50 text-blue-200 px-2 py-1 rounded border border-blue-500/30">
+                            {suggestion}
+                          </code>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                   {msg.message?.includes('API key') && (
                     <div className="mt-3 pt-3 border-t border-red-500/30 text-xs text-red-300">
                       💡 Make sure to set your OPENAI_API_KEY in backend/.env file

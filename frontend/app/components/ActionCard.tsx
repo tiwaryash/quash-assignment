@@ -103,11 +103,35 @@ export default function ActionCard({ action, status, step, total, details, resul
       )}
       
       {result && result.error && (
-        <div className="mt-3 pt-3 border-t border-red-500/30">
+        <div className="mt-3 pt-3 border-t border-red-500/30 space-y-2">
           <div className="text-sm text-red-300 bg-red-500/10 p-2 rounded-lg">
             <span className="font-semibold">Error: </span>
             {result.error}
           </div>
+          {result.suggestions && result.suggestions.length > 0 && (
+            <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3">
+              <div className="text-xs font-semibold text-blue-300 mb-2">💡 Suggested selectors:</div>
+              <div className="flex flex-wrap gap-2">
+                {result.suggestions.map((suggestion: string, idx: number) => (
+                  <code key={idx} className="text-xs bg-slate-800/50 text-blue-200 px-2 py-1 rounded border border-blue-500/30">
+                    {suggestion}
+                  </code>
+                ))}
+              </div>
+            </div>
+          )}
+          {result.alternatives && result.alternatives.length > 0 && (
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3">
+              <div className="text-xs font-semibold text-amber-300 mb-2">🔄 Common alternatives:</div>
+              <div className="flex flex-wrap gap-2">
+                {result.alternatives.map((alt: string, idx: number) => (
+                  <code key={idx} className="text-xs bg-slate-800/50 text-amber-200 px-2 py-1 rounded border border-amber-500/30">
+                    {alt}
+                  </code>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
       
