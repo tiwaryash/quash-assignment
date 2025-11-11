@@ -352,7 +352,6 @@ class BrowserAgent:
                                 const containers = document.querySelectorAll(sel);
                                 if (containers.length > 0) {
                                     productContainers = Array.from(containers).slice(0, 20); // Limit to 20
-                                    console.log(`Found ${productContainers.length} containers with selector: ${sel}`);
                                     break;
                                 }
                             } catch (e) {
@@ -485,8 +484,15 @@ class BrowserAgent:
                         }
                         
                         // Convert to field-based format
-                        for (const key of Object.keys(schema)) {
-                            data[key] = items.map(item => item[key] || null);
+                        if (items.length > 0) {
+                            for (const key of Object.keys(schema)) {
+                                data[key] = items.map(item => item[key] || null);
+                            }
+                        } else {
+                            // If no items found, return empty arrays for each schema key
+                            for (const key of Object.keys(schema)) {
+                                data[key] = [];
+                            }
                         }
                     } else {
                         // Fallback: extract globally
@@ -575,10 +581,15 @@ class BrowserAgent:
                 "count": 0
             }
         except Exception as e:
+            import traceback
+            error_trace = traceback.format_exc()
+            print(f"Extraction error: {str(e)}")
+            print(f"Traceback: {error_trace}")
             return {
                 "status": "error",
                 "error": str(e),
-                "diagnostic": diagnostic if 'diagnostic' in locals() else None
+                "diagnostic": diagnostic if 'diagnostic' in locals() else None,
+                "traceback": error_trace
             }
 
 # Global instance
