@@ -126,12 +126,13 @@ export default function ChatWindow() {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gradient-to-b from-slate-900/50 to-slate-800/30">
+      <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gradient-to-b from-slate-900/50 to-slate-800/30 min-h-[400px]">
         {messages.length === 0 && (
           <div className="text-center py-12">
             <div className="text-6xl mb-4">🤖</div>
             <h3 className="text-xl font-semibold text-slate-300 mb-2">Welcome to Quash Browser Agent</h3>
             <p className="text-slate-400 mb-6">Start by sending a natural language instruction</p>
+            <p className="text-xs text-slate-500 mb-4">Make sure the backend server is running on port 8000</p>
             <div className="flex flex-wrap gap-2 justify-center">
               {[
                 "Navigate to google.com",
@@ -274,7 +275,7 @@ export default function ChatWindow() {
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-              placeholder="Type your instruction... (e.g., 'Navigate to google.com and search for AI')"
+              placeholder={connected ? "Type your instruction... (e.g., 'Find MacBook Air under ₹1,00,000')" : "Connecting to server..."}
               className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700/50 rounded-xl text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               disabled={!connected || isLoading}
             />
@@ -297,9 +298,16 @@ export default function ChatWindow() {
             )}
           </button>
         </div>
-        <div className="mt-2 text-xs text-slate-500 text-center">
-          Press Enter to send • Shift+Enter for new line
-        </div>
+        {!connected && (
+          <div className="mt-2 text-xs text-amber-400 text-center">
+            ⚠️ Backend not connected. Make sure the server is running on port 8000
+          </div>
+        )}
+        {connected && (
+          <div className="mt-2 text-xs text-slate-500 text-center">
+            Press Enter to send • Shift+Enter for new line
+          </div>
+        )}
       </div>
     </div>
   );
