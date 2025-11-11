@@ -13,7 +13,27 @@ async def execute_plan(websocket: WebSocket, instruction: str):
             "message": "Planning actions..."
         })
         
-        plan = await create_action_plan(instruction)
+        try:
+            plan = await create_action_plan(instruction)
+        except ValueError as e:
+            await websocket.send_json({
+                "type": "error",
+                "message": str(e)
+            })
+            return
+        except Exception as e:
+            error_msg = str(e)
+            if "API key" in error_msg or "401" in error_msg:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": "OpenAI API key not configured or invalid. Please set OPENAI_API_KEY in backend/.env file"
+                })
+            else:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"Failed to create action plan: {error_msg}"
+                })
+            return
         
         if not plan:
             await websocket.send_json({
