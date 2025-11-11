@@ -137,23 +137,50 @@ export default function ActionCard({ action, status, step, total, details, resul
       
       {result && result.data && Array.isArray(result.data) && result.data.length > 0 && (
         <div className="mt-3 pt-3 border-t border-slate-700/50">
-          <div className="text-sm font-semibold mb-2 text-emerald-300">
-            ✨ Extracted {result.count || result.data.length} item{result.data.length !== 1 ? 's' : ''}
+          <div className="flex items-center justify-between mb-3">
+            <div className="text-sm font-semibold text-emerald-300">
+              ✨ Extracted {result.count || result.data.length} item{result.data.length !== 1 ? 's' : ''}
+            </div>
+            {result.filtered && result.max_price && (
+              <div className="text-xs text-amber-300 bg-amber-500/10 px-2 py-1 rounded">
+                Filtered: Under ₹{result.max_price.toLocaleString('en-IN')}
+              </div>
+            )}
           </div>
-          <div className="bg-slate-900/50 rounded-lg p-3 max-h-64 overflow-y-auto">
-            <div className="space-y-2">
-              {result.data.slice(0, 5).map((item: any, idx: number) => (
-                <div key={idx} className="bg-slate-800/50 p-2 rounded text-xs">
-                  <pre className="text-slate-300 whitespace-pre-wrap">
-                    {JSON.stringify(item, null, 2)}
-                  </pre>
+          <div className="bg-slate-900/50 rounded-lg p-3 max-h-96 overflow-y-auto">
+            <div className="space-y-3">
+              {result.data.map((item: any, idx: number) => (
+                <div key={idx} className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
+                  <div className="space-y-1.5">
+                    {item.name && (
+                      <div className="font-semibold text-slate-200 text-sm">{item.name}</div>
+                    )}
+                    <div className="flex items-center gap-4 text-xs">
+                      {item.price && (
+                        <div className="text-emerald-400 font-medium">
+                          ₹{typeof item.price === 'number' ? item.price.toLocaleString('en-IN') : item.price}
+                        </div>
+                      )}
+                      {item.rating && (
+                        <div className="flex items-center gap-1 text-amber-400">
+                          <span>⭐</span>
+                          <span>{typeof item.rating === 'number' ? item.rating.toFixed(1) : item.rating}</span>
+                        </div>
+                      )}
+                    </div>
+                    {item.link && (
+                      <a 
+                        href={item.link} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="text-xs text-blue-400 hover:text-blue-300 underline truncate block"
+                      >
+                        {item.link}
+                      </a>
+                    )}
+                  </div>
                 </div>
               ))}
-              {result.data.length > 5 && (
-                <div className="text-xs text-slate-400 text-center pt-2">
-                  ... and {result.data.length - 5} more
-                </div>
-              )}
             </div>
           </div>
         </div>
