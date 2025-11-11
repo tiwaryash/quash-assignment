@@ -370,45 +370,116 @@ class BrowserAgent:
                             const container = productContainers[i];
                             const item = {};
                             
-                            for (const [key, selector] of Object.entries(schema)) {
-                                let selectorsToTry = [selector];
-                                
-                                // Add site-specific fallbacks
-                                if (siteSelectors) {
-                                    if (key === 'name' && siteSelectors.product_name) {
-                                        selectorsToTry = selectorsToTry.concat(siteSelectors.product_name);
-                                    } else if (key === 'price' && siteSelectors.product_price) {
-                                        selectorsToTry = selectorsToTry.concat(siteSelectors.product_price);
-                                    } else if (key === 'rating' && siteSelectors.product_rating) {
-                                        selectorsToTry = selectorsToTry.concat(siteSelectors.product_rating);
-                                    } else if ((key === 'link' || key === 'url') && siteSelectors.product_link) {
-                                        selectorsToTry = selectorsToTry.concat(siteSelectors.product_link);
+                            // Extract link first (most reliable)
+                            if (schema.link || schema.url) {
+                                const linkKey = schema.link ? 'link' : 'url';
+                                const linkEl = container.querySelector('a[href*="/p/"]') || container.closest('a[href*="/p/"]');
+                                if (linkEl) {
+                                    let href = linkEl.href || linkEl.getAttribute('href') || '';
+                                    if (!href.startsWith('http')) {
+                                        href = window.location.origin + href;
                                     }
-                                }
-                                
-                                // For links, also try to find the closest anchor
-                                if (key === 'link' || key === 'url') {
-                                    const values = trySelectors(selectorsToTry, container, true);
-                                    if (values[0]) {
-                                        item[key] = values[0];
-                                    } else {
-                                        // Fallback: find any link in container
-                                        const linkEl = container.querySelector('a[href*="/p/"]') || container.closest('a[href*="/p/"]');
-                                        if (linkEl) {
-                                            const href = linkEl.href || linkEl.getAttribute('href') || '';
-                                            item[key] = href.startsWith('http') ? href : (window.location.origin + href);
-                                        } else {
-                                            item[key] = null;
-                                        }
-                                    }
-                                } else {
-                                    const values = trySelectors(selectorsToTry, container, false);
-                                    item[key] = values[0] || null;  // Get first match from container
+                                    item[linkKey] = href;
                                 }
                             }
                             
+                            // Extract name - try multiple strategies
+                            if (schema.name) {
+                                let name = null;
+                                // Try selectors first
+                                const nameSelectors = [schema.name];
+                                if (siteSelectors && siteSelectors.product_name) {
+                                    nameSelectors.push(...siteSelectors.product_name);
+                                }
+                                const nameValues = trySelectors(nameSelectors, container, false);
+                                if (nameValues[0]) {
+                                    name = nameValues[0];
+                                } else {
+                                    // Fallback: get text from link or title
+                                    const linkEl = container.querySelector('a[href*="/p/"]');
+                                    if (linkEl) {
+                                        // Get title attribute first (cleaner)
+                                        name = linkEl.getAttribute('title');
+                                        if (!name) {
+                                            // Try to get just the first line or first meaningful text
+                                            const linkText = linkEl.textContent?.trim() || linkEl.innerText?.trim() || '';
+                                            // Split by newlines and take first non-empty line, or first 100 chars
+                                            const lines = linkText.split(/[\n\r]+/).filter(l => l.trim());
+                                            if (lines.length > 0) {
+                                                name = lines[0].trim().substring(0, 150);
+                                            } else {
+                                                name = linkText.substring(0, 150);
+                                            }
+                                        }
+                                    }
+                                    // Try to find any heading or text element
+                                    if (!name) {
+                                        const heading = container.querySelector('h1, h2, h3, h4, [class*="title"], [class*="name"]');
+                                        if (heading) {
+                                            name = heading.textContent?.trim() || heading.innerText?.trim();
+                                        }
+                                    }
+                                    // Clean up name - remove extra whitespace and limit length
+                                    if (name) {
+                                        name = name.replace(/\s+/g, ' ').trim();
+                                        // Try to extract just the product name (before first number or special marker)
+                                        const nameMatch = name.match(/^([^0-9₹$]*?)(?:\s*[-–—]|\s+\d|₹|$)/);
+                                        if (nameMatch && nameMatch[1].trim().length > 5) {
+                                            name = nameMatch[1].trim();
+                                        }
+                                        // Limit to reasonable length
+                                        if (name.length > 100) {
+                                            name = name.substring(0, 100).trim() + '...';
+                                        }
+                                    }
+                                }
+                                item.name = name;
+                            }
+                            
+                            // Extract price - try multiple strategies
+                            if (schema.price) {
+                                let price = null;
+                                const priceSelectors = [schema.price];
+                                if (siteSelectors && siteSelectors.product_price) {
+                                    priceSelectors.push(...siteSelectors.product_price);
+                                }
+                                const priceValues = trySelectors(priceSelectors, container, false);
+                                if (priceValues[0]) {
+                                    price = priceValues[0];
+                                } else {
+                                    // Fallback: look for price-like patterns in text
+                                    const containerText = container.textContent || container.innerText || '';
+                                    const priceMatch = containerText.match(/[₹$]\s*[\d,]+/);
+                                    if (priceMatch) {
+                                        price = priceMatch[0];
+                                    }
+                                }
+                                item.price = price;
+                            }
+                            
+                            // Extract rating - try multiple strategies
+                            if (schema.rating) {
+                                let rating = null;
+                                const ratingSelectors = [schema.rating];
+                                if (siteSelectors && siteSelectors.product_rating) {
+                                    ratingSelectors.push(...siteSelectors.product_rating);
+                                }
+                                const ratingValues = trySelectors(ratingSelectors, container, false);
+                                if (ratingValues[0]) {
+                                    rating = ratingValues[0];
+                                } else {
+                                    // Fallback: look for rating patterns
+                                    const containerText = container.textContent || container.innerText || '';
+                                    const ratingMatch = containerText.match(/(\d+\.?\d*)\s*(?:out of|stars?|★|⭐)/i);
+                                    if (ratingMatch) {
+                                        rating = ratingMatch[1];
+                                    }
+                                }
+                                item.rating = rating;
+                            }
+                            
                             // Only add item if it has at least name or link
-                            if (item.name || item.link) {
+                            if (item.name || item.link || item.url) {
                                 items.push(item);
                             }
                         }

@@ -136,9 +136,24 @@ async def execute_plan(websocket: WebSocket, instruction: str):
                                 result["filtered"] = True
                                 result["max_price"] = max_price
                             else:
-                                result["data"] = []
-                                result["count"] = 0
-                                result["message"] = f"No products found under ₹{max_price:,.0f}"
+                                # No products under price limit - show closest matches or all products
+                                # Sort by price (ascending) to show cheapest first
+                                sorted_by_price = sorted(
+                                    [item for item in extracted_data if item.get('price')], 
+                                    key=lambda x: x.get('price') or float('inf')
+                                )
+                                if sorted_by_price:
+                                    # Show top 3 closest to price limit
+                                    closest = sorted_by_price[:limit or 3]
+                                    result["data"] = closest
+                                    result["count"] = len(closest)
+                                    result["filtered"] = True
+                                    result["max_price"] = max_price
+                                    result["message"] = f"No products found under ₹{max_price:,.0f}. Showing closest matches:"
+                                else:
+                                    result["data"] = []
+                                    result["count"] = 0
+                                    result["message"] = f"No products found under ₹{max_price:,.0f}"
                         else:
                             # Just get top results by rating
                             top_results = get_top_results(extracted_data, limit or 3)
