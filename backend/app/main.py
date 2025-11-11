@@ -1,6 +1,7 @@
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from app.api.websocket import websocket_endpoint
+from app.api.plan import router as plan_router
 
 app = FastAPI(title="Quash Browser Agent API")
 
@@ -20,6 +21,8 @@ async def root():
 @app.get("/health")
 async def health():
     return {"status": "healthy"}
+
+app.include_router(plan_router, prefix="/api", tags=["planning"])
 
 @app.websocket("/ws")
 async def websocket_route(websocket: WebSocket):
