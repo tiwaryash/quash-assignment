@@ -69,10 +69,10 @@ class BrowserAgent:
             selectors_to_try.extend([
                 "input[name='btnK']",  # Google search button
                 "input[type='submit']",
-                "button:has-text('Search')",
+                "input[value='Google Search']",
+                "input[value='Search']",
                 "button[aria-label*='Search']",
-                "button[aria-label*='search']",
-                "[role='button']:has-text('Search')"
+                "button[aria-label*='search']"
             ])
         elif "button" in selector:
             # Try to find button by text if it's a generic button selector
@@ -86,11 +86,16 @@ class BrowserAgent:
         for sel in selectors_to_try:
             try:
                 await self.page.wait_for_selector(sel, state="visible", timeout=5000)
-                # Scroll into view if needed
-                await self.page.evaluate(f"""
-                    const el = document.querySelector('{sel}');
-                    if (el) el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-                """)
+                # Scroll into view if needed - use proper escaping
+                try:
+                    await self.page.evaluate("""
+                        (selector) => {
+                            const el = document.querySelector(selector);
+                            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                        }
+                    """, sel)
+                except:
+                    pass  # If scroll fails, continue anyway
                 await self.page.wait_for_timeout(500)
                 await self.page.click(sel)
                 return {
