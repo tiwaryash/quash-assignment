@@ -17,6 +17,9 @@ Return ONLY valid JSON object with "actions" key containing the array, no markdo
 
 async def create_action_plan(instruction: str) -> list[dict]:
     """Convert natural language instruction to a JSON action plan."""
+    if not settings.openai_api_key:
+        raise ValueError("OpenAI API key not configured. Please set OPENAI_API_KEY in .env file")
+    
     try:
         response = client.chat.completions.create(
             model=settings.openai_model,

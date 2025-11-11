@@ -20,6 +20,7 @@ export default function ChatWindow() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [connected, setConnected] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -32,42 +33,62 @@ export default function ChatWindow() {
   }, [messages]);
 
   useEffect(() => {
-    const ws = new WebSocket('ws://localhost:8000/ws');
-    
-    ws.onopen = () => {
-      setConnected(true);
-      setMessages(prev => [...prev, {
-        type: 'system',
-        message: 'Connected to server',
-        timestamp: Date.now()
-      }]);
+    const connect = () => {
+      const ws = new WebSocket('ws://localhost:8000/ws');
+      
+      ws.onopen = () => {
+        setConnected(true);
+        setMessages(prev => [...prev, {
+          type: 'system',
+          message: 'Connected to server',
+          timestamp: Date.now()
+        }]);
+      };
+
+      ws.onmessage = (event) => {
+        const data = JSON.parse(event.data);
+        
+        if (data.type === 'status' && data.message?.includes('Planning')) {
+          setIsLoading(true);
+        }
+        
+        if (data.type === 'status' && data.message?.includes('completed')) {
+          setIsLoading(false);
+        }
+        
+        setMessages(prev => [...prev, {
+          ...data,
+          timestamp: Date.now()
+        }]);
+      };
+
+      ws.onerror = (error) => {
+        setConnected(false);
+        setIsLoading(false);
+      };
+
+      ws.onclose = () => {
+        setConnected(false);
+        setIsLoading(false);
+        setMessages(prev => [...prev, {
+          type: 'system',
+          message: 'Disconnected from server. Reconnecting...',
+          timestamp: Date.now()
+        }]);
+        
+        // Reconnect after 3 seconds
+        setTimeout(connect, 3000);
+      };
+
+      wsRef.current = ws;
     };
 
-    ws.onmessage = (event) => {
-      const data = JSON.parse(event.data);
-      setMessages(prev => [...prev, {
-        ...data,
-        timestamp: Date.now()
-      }]);
-    };
-
-    ws.onerror = () => {
-      setConnected(false);
-    };
-
-    ws.onclose = () => {
-      setConnected(false);
-      setMessages(prev => [...prev, {
-        type: 'system',
-        message: 'Disconnected from server',
-        timestamp: Date.now()
-      }]);
-    };
-
-    wsRef.current = ws;
+    connect();
 
     return () => {
-      ws.close();
+      if (wsRef.current) {
+        wsRef.current.close();
+      }
     };
   }, []);
 
@@ -80,24 +101,60 @@ export default function ChatWindow() {
         timestamp: Date.now()
       }]);
       setInput('');
+      setIsLoading(true);
     }
   };
 
   return (
-    <div className="flex flex-col h-screen max-w-4xl mx-auto p-4">
-      <div className="mb-4">
-        <div className={`inline-block px-3 py-1 rounded text-sm ${connected ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-          {connected ? 'Connected' : 'Disconnected'}
+    <div className="flex flex-col h-[calc(100vh-180px)] bg-slate-900/50 backdrop-blur-sm rounded-2xl border border-slate-700/50 shadow-2xl overflow-hidden">
+      {/* Header */}
+      <div className="flex items-center justify-between p-4 border-b border-slate-700/50 bg-slate-800/30">
+        <div className="flex items-center gap-3">
+          <div className={`w-3 h-3 rounded-full ${connected ? 'bg-emerald-500 pulse-glow' : 'bg-red-500'}`}></div>
+          <span className="text-sm font-medium text-slate-300">
+            {connected ? 'Connected' : 'Disconnected'}
+          </span>
         </div>
+        {isLoading && (
+          <div className="flex items-center gap-2 text-sm text-amber-400">
+            <div className="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
+            <span>Processing...</span>
+          </div>
+        )}
       </div>
 
-      <div className="flex-1 overflow-y-auto border rounded-lg p-4 mb-4 bg-gray-50">
+      {/* Messages */}
+      <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gradient-to-b from-slate-900/50 to-slate-800/30">
+        {messages.length === 0 && (
+          <div className="text-center py-12">
+            <div className="text-6xl mb-4">🤖</div>
+            <h3 className="text-xl font-semibold text-slate-300 mb-2">Welcome to Quash Browser Agent</h3>
+            <p className="text-slate-400 mb-6">Start by sending a natural language instruction</p>
+            <div className="flex flex-wrap gap-2 justify-center">
+              {[
+                "Navigate to google.com",
+                "Search for laptops on Flipkart",
+                "Find top 3 pizza places",
+                "Extract page title"
+              ].map((example, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setInput(example)}
+                  className="px-4 py-2 bg-slate-800/50 hover:bg-slate-700/50 text-slate-300 rounded-lg text-sm transition-colors border border-slate-700/50"
+                >
+                  {example}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+        
         {messages.map((msg, idx) => {
           if (msg.type === 'user') {
             return (
-              <div key={idx} className="mb-2 text-right">
-                <div className="inline-block px-3 py-2 rounded-lg bg-blue-500 text-white">
-                  {msg.message}
+              <div key={idx} className="flex justify-end animate-slide-in">
+                <div className="max-w-[80%] bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-2xl rounded-br-sm px-4 py-3 shadow-lg">
+                  <p className="text-sm leading-relaxed">{msg.message}</p>
                 </div>
               </div>
             );
@@ -119,13 +176,27 @@ export default function ChatWindow() {
           
           if (msg.type === 'plan') {
             return (
-              <div key={idx} className="mb-2">
-                <div className="bg-purple-100 border border-purple-300 rounded-lg p-3">
-                  <div className="font-semibold mb-2">📋 Action Plan ({msg.data?.length || 0} steps)</div>
-                  <div className="text-sm space-y-1">
+              <div key={idx} className="animate-slide-in">
+                <div className="bg-gradient-to-r from-purple-600/20 to-indigo-600/20 border border-purple-500/50 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-2xl">📋</span>
+                    <span className="font-semibold text-purple-300">Action Plan</span>
+                    <span className="text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded-full">
+                      {msg.data?.length || 0} steps
+                    </span>
+                  </div>
+                  <div className="space-y-2">
                     {msg.data?.map((action: any, i: number) => (
-                      <div key={i} className="opacity-75">
-                        {i + 1}. {action.action} {action.selector && `(${action.selector})`}
+                      <div key={i} className="flex items-center gap-3 text-sm bg-slate-800/30 p-2 rounded-lg">
+                        <span className="w-6 h-6 rounded-full bg-purple-500/20 text-purple-300 flex items-center justify-center text-xs font-semibold">
+                          {i + 1}
+                        </span>
+                        <span className="text-slate-300 capitalize">{action.action}</span>
+                        {action.selector && (
+                          <code className="text-xs text-slate-400 ml-auto font-mono">
+                            {action.selector}
+                          </code>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -136,10 +207,20 @@ export default function ChatWindow() {
           
           if (msg.type === 'error') {
             return (
-              <div key={idx} className="mb-2">
-                <div className="bg-red-100 border border-red-300 rounded-lg p-3 text-red-800">
-                  <div className="font-semibold">❌ Error</div>
-                  <div className="text-sm">{msg.message}</div>
+              <div key={idx} className="animate-slide-in">
+                <div className="bg-gradient-to-r from-red-600/20 to-rose-600/20 border border-red-500/50 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xl">❌</span>
+                    <span className="font-semibold text-red-300">Error</span>
+                  </div>
+                  <div className="text-sm text-red-200">
+                    {msg.message}
+                  </div>
+                  {msg.message?.includes('API key') && (
+                    <div className="mt-3 pt-3 border-t border-red-500/30 text-xs text-red-300">
+                      💡 Make sure to set your OPENAI_API_KEY in backend/.env file
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -147,42 +228,64 @@ export default function ChatWindow() {
           
           if (msg.type === 'status') {
             return (
-              <div key={idx} className="mb-2">
-                <div className="bg-blue-100 border border-blue-300 rounded-lg p-3 text-blue-800 text-sm">
+              <div key={idx} className="flex justify-center animate-slide-in">
+                <div className="bg-slate-800/50 border border-slate-700/50 rounded-full px-4 py-2 text-sm text-slate-400">
                   {msg.message}
                 </div>
               </div>
             );
           }
           
-          return (
-            <div key={idx} className="mb-2">
-              <div className="inline-block px-3 py-2 rounded-lg bg-gray-200 text-gray-700">
-                {msg.message || JSON.stringify(msg)}
+          if (msg.type === 'system') {
+            return (
+              <div key={idx} className="flex justify-center">
+                <div className="bg-slate-800/30 border border-slate-700/30 rounded-full px-4 py-2 text-xs text-slate-500">
+                  {msg.message}
+                </div>
               </div>
-            </div>
-          );
+            );
+          }
+          
+          return null;
         })}
         <div ref={messagesEndRef} />
       </div>
 
-      <div className="flex gap-2">
-        <input
-          type="text"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-          placeholder="Type an instruction (e.g., 'Navigate to google.com')..."
-          className="flex-1 px-4 py-2 border rounded-lg"
-          disabled={!connected}
-        />
-        <button
-          onClick={sendMessage}
-          disabled={!connected || !input.trim()}
-          className="px-6 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed"
-        >
-          Send
-        </button>
+      {/* Input */}
+      <div className="p-4 border-t border-slate-700/50 bg-slate-800/30">
+        <div className="flex gap-3">
+          <div className="flex-1 relative">
+            <input
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
+              placeholder="Type your instruction... (e.g., 'Navigate to google.com and search for AI')"
+              className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700/50 rounded-xl text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={!connected || isLoading}
+            />
+          </div>
+          <button
+            onClick={sendMessage}
+            disabled={!connected || !input.trim() || isLoading}
+            className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-medium rounded-xl shadow-lg hover:shadow-blue-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-lg flex items-center gap-2 min-w-[100px] justify-center"
+          >
+            {isLoading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                <span>Sending...</span>
+              </>
+            ) : (
+              <>
+                <span>Send</span>
+                <span>→</span>
+              </>
+            )}
+          </button>
+        </div>
+        <div className="mt-2 text-xs text-slate-500 text-center">
+          Press Enter to send • Shift+Enter for new line
+        </div>
       </div>
     </div>
   );

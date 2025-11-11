@@ -10,68 +10,130 @@ interface ActionCardProps {
 }
 
 export default function ActionCard({ action, status, step, total, details, result }: ActionCardProps) {
-  const getStatusColor = () => {
+  const getStatusConfig = () => {
     switch (status) {
       case 'executing':
-        return 'bg-yellow-100 border-yellow-300 text-yellow-800';
+        return {
+          bg: 'bg-gradient-to-r from-amber-500/20 to-yellow-500/20',
+          border: 'border-amber-500/50',
+          text: 'text-amber-300',
+          icon: '⏳',
+          iconBg: 'bg-amber-500/20',
+          pulse: true
+        };
       case 'completed':
-        return 'bg-green-100 border-green-300 text-green-800';
+        return {
+          bg: 'bg-gradient-to-r from-emerald-500/20 to-green-500/20',
+          border: 'border-emerald-500/50',
+          text: 'text-emerald-300',
+          icon: '✅',
+          iconBg: 'bg-emerald-500/20',
+          pulse: false
+        };
       case 'error':
-        return 'bg-red-100 border-red-300 text-red-800';
+        return {
+          bg: 'bg-gradient-to-r from-red-500/20 to-rose-500/20',
+          border: 'border-red-500/50',
+          text: 'text-red-300',
+          icon: '❌',
+          iconBg: 'bg-red-500/20',
+          pulse: false
+        };
       default:
-        return 'bg-gray-100 border-gray-300 text-gray-800';
+        return {
+          bg: 'bg-slate-800/50',
+          border: 'border-slate-600',
+          text: 'text-slate-300',
+          icon: '📋',
+          iconBg: 'bg-slate-600/20',
+          pulse: false
+        };
     }
   };
 
-  const getStatusIcon = () => {
-    switch (status) {
-      case 'executing':
-        return '⏳';
-      case 'completed':
-        return '✅';
-      case 'error':
-        return '❌';
-      default:
-        return '📋';
-    }
-  };
+  const config = getStatusConfig();
 
   return (
-    <div className={`border rounded-lg p-3 mb-2 ${getStatusColor()}`}>
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span>{getStatusIcon()}</span>
-          <span className="font-semibold capitalize">{action}</span>
-          {step && total && (
-            <span className="text-sm opacity-75">({step}/{total})</span>
-          )}
+    <div className={`animate-slide-in border rounded-xl p-4 mb-3 ${config.bg} ${config.border} ${config.pulse ? 'pulse-glow' : ''}`}>
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-3">
+          <div className={`w-10 h-10 rounded-lg ${config.iconBg} flex items-center justify-center text-xl`}>
+            {config.icon}
+          </div>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className={`font-semibold capitalize ${config.text} text-base`}>
+                {action.replace('_', ' ')}
+              </span>
+              {step && total && (
+                <span className="text-xs text-slate-400 bg-slate-700/50 px-2 py-0.5 rounded-full">
+                  {step}/{total}
+                </span>
+              )}
+            </div>
+            {details?.selector && (
+              <div className="text-xs text-slate-400 mt-1 font-mono">
+                {details.selector}
+              </div>
+            )}
+          </div>
         </div>
-        <span className="text-sm capitalize">{status}</span>
+        <span className={`text-xs font-medium px-3 py-1 rounded-full ${config.text} ${config.iconBg} capitalize`}>
+          {status}
+        </span>
       </div>
       
       {details && (
-        <div className="mt-2 text-sm opacity-75">
-          {details.selector && <div>Selector: <code className="bg-white/50 px-1 rounded">{details.selector}</code></div>}
-          {details.url && <div>URL: <code className="bg-white/50 px-1 rounded">{details.url}</code></div>}
-          {details.text && <div>Text: {details.text}</div>}
+        <div className="mt-3 pt-3 border-t border-slate-700/50 space-y-2 text-sm">
+          {details.url && (
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400">URL:</span>
+              <code className="text-blue-300 bg-slate-800/50 px-2 py-1 rounded font-mono text-xs">
+                {details.url}
+              </code>
+            </div>
+          )}
+          {details.text && (
+            <div className="flex items-center gap-2">
+              <span className="text-slate-400">Text:</span>
+              <span className="text-slate-300">{details.text}</span>
+            </div>
+          )}
         </div>
       )}
       
       {result && result.error && (
-        <div className="mt-2 text-sm font-medium">
-          Error: {result.error}
+        <div className="mt-3 pt-3 border-t border-red-500/30">
+          <div className="text-sm text-red-300 bg-red-500/10 p-2 rounded-lg">
+            <span className="font-semibold">Error: </span>
+            {result.error}
+          </div>
         </div>
       )}
       
-      {result && result.data && (
-        <div className="mt-2 text-sm">
-          <div className="font-medium mb-1">Extracted data:</div>
-          <pre className="bg-white/50 p-2 rounded text-xs overflow-auto">
-            {JSON.stringify(result.data, null, 2)}
-          </pre>
+      {result && result.data && Array.isArray(result.data) && result.data.length > 0 && (
+        <div className="mt-3 pt-3 border-t border-slate-700/50">
+          <div className="text-sm font-semibold mb-2 text-emerald-300">
+            ✨ Extracted {result.count || result.data.length} item{result.data.length !== 1 ? 's' : ''}
+          </div>
+          <div className="bg-slate-900/50 rounded-lg p-3 max-h-64 overflow-y-auto">
+            <div className="space-y-2">
+              {result.data.slice(0, 5).map((item: any, idx: number) => (
+                <div key={idx} className="bg-slate-800/50 p-2 rounded text-xs">
+                  <pre className="text-slate-300 whitespace-pre-wrap">
+                    {JSON.stringify(item, null, 2)}
+                  </pre>
+                </div>
+              ))}
+              {result.data.length > 5 && (
+                <div className="text-xs text-slate-400 text-center pt-2">
+                  ... and {result.data.length - 5} more
+                </div>
+              )}
+            </div>
+          </div>
         </div>
       )}
     </div>
   );
 }
-
