@@ -57,74 +57,119 @@ class BrowserAgent:
             }
 
     async def click(self, selector: str) -> dict:
-        """Click an element by selector."""
+        """Click an element by selector with automatic fallback."""
         if not self.page:
             return {"status": "error", "error": "Browser not initialized"}
         
-        try:
-            # Wait for selector to be visible and stable
-            await self.page.wait_for_selector(selector, state="visible", timeout=15000)
-            # Scroll into view if needed
-            await self.page.evaluate(f"""
-                const el = document.querySelector('{selector}');
-                if (el) el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
-            """)
-            await self.page.wait_for_timeout(500)  # Small delay for scroll
-            await self.page.click(selector)
-            return {"status": "success", "selector": selector}
-        except Exception as e:
-            # Try to find alternative selectors
-            error_msg = str(e)
-            suggestions = await self._suggest_selectors(selector)
-            return {
-                "status": "error",
-                "error": f"Selector not found: {error_msg}",
-                "selector": selector,
-                "suggestions": suggestions
-            }
+        # List of selectors to try
+        selectors_to_try = [selector]
+        
+        # If it's a submit button, try common alternatives
+        if "button[type='submit']" in selector or "submit" in selector.lower():
+            selectors_to_try.extend([
+                "input[name='btnK']",  # Google search button
+                "input[type='submit']",
+                "button:has-text('Search')",
+                "button[aria-label*='Search']",
+                "button[aria-label*='search']",
+                "[role='button']:has-text('Search')"
+            ])
+        elif "button" in selector:
+            # Try to find button by text if it's a generic button selector
+            selectors_to_try.extend([
+                "input[type='submit']",
+                "[role='button']"
+            ])
+        
+        # Try each selector
+        last_error = None
+        for sel in selectors_to_try:
+            try:
+                await self.page.wait_for_selector(sel, state="visible", timeout=5000)
+                # Scroll into view if needed
+                await self.page.evaluate(f"""
+                    const el = document.querySelector('{sel}');
+                    if (el) el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                """)
+                await self.page.wait_for_timeout(500)
+                await self.page.click(sel)
+                return {
+                    "status": "success", 
+                    "selector": sel,
+                    "original_selector": selector if sel != selector else None
+                }
+            except Exception as e:
+                last_error = str(e)
+                continue
+        
+        # If all failed, get suggestions
+        suggestions = await self._suggest_selectors(selector)
+        return {
+            "status": "error",
+            "error": f"Selector not found: {last_error}",
+            "selector": selector,
+            "suggestions": suggestions,
+            "tried_selectors": selectors_to_try[:5]
+        }
 
     async def type_text(self, selector: str, text: str) -> dict:
-        """Type text into an input field."""
+        """Type text into an input field with automatic fallback to alternatives."""
         if not self.page:
             return {"status": "error", "error": "Browser not initialized"}
         
-        try:
-            # Wait for selector with multiple strategies
-            await self.page.wait_for_selector(selector, state="visible", timeout=15000)
-            
-            # Try to find the element and check if it's an input
-            element = await self.page.query_selector(selector)
-            if not element:
-                raise Exception(f"Element with selector '{selector}' not found")
-            
-            # Clear existing value first
-            await self.page.fill(selector, "")
-            # Type the text
-            await self.page.type(selector, text, delay=50)
-            
-            return {"status": "success", "selector": selector, "text": text}
-        except Exception as e:
-            error_msg = str(e)
-            # Try alternative selectors for common search inputs
-            alternatives = [
-                "input[type='search']",
-                "input[type='text']",
-                "input",
+        # List of selectors to try in order
+        selectors_to_try = [selector]
+        
+        # If the original selector is input[name='q'], add textarea alternative (common for Google, etc.)
+        if "input[name='q']" in selector:
+            selectors_to_try.extend([
+                "textarea[name='q']",
+                "#APjFqb",  # Google's search box ID
                 "textarea",
-                "[role='searchbox']",
-                "#search",
-                ".search-input"
-            ]
-            
-            suggestions = await self._suggest_selectors(selector)
-            
-            return {
-                "status": "error",
-                "error": f"Selector not found: {error_msg}",
-                "selector": selector,
-                "suggestions": suggestions,
-                "alternatives": alternatives[:3]  # Show first 3 alternatives
-            }
+                "input[type='search']",
+                "[role='searchbox']"
+            ])
+        elif "input" in selector and "textarea" not in selector:
+            # If it's an input selector, also try textarea
+            textarea_version = selector.replace("input", "textarea")
+            selectors_to_try.append(textarea_version)
+            selectors_to_try.extend([
+                "textarea[name='q']",
+                "input[type='search']",
+                "[role='searchbox']"
+            ])
+        
+        # Try each selector until one works
+        last_error = None
+        for sel in selectors_to_try:
+            try:
+                await self.page.wait_for_selector(sel, state="visible", timeout=5000)
+                element = await self.page.query_selector(sel)
+                if element:
+                    # Clear existing value first
+                    await self.page.fill(sel, "")
+                    # Type the text
+                    await self.page.type(sel, text, delay=50)
+                    return {
+                        "status": "success", 
+                        "selector": sel, 
+                        "text": text,
+                        "original_selector": selector if sel != selector else None
+                    }
+            except Exception as e:
+                last_error = str(e)
+                continue
+        
+        # If all selectors failed, get suggestions
+        suggestions = await self._suggest_selectors(selector)
+        
+        return {
+            "status": "error",
+            "error": f"Selector not found: {last_error}",
+            "selector": selector,
+            "suggestions": suggestions,
+            "tried_selectors": selectors_to_try[:5]  # Show what we tried
+        }
 
     async def wait_for(self, selector: str, timeout: int = 5000) -> dict:
         """Wait for an element to appear."""

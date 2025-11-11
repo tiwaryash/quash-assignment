@@ -6,10 +6,17 @@ client = OpenAI(api_key=settings.openai_api_key)
 
 SYSTEM_PROMPT = """You are a browser automation planner. Convert user instructions into a JSON object with an "actions" array.
 
+IMPORTANT SELECTOR GUIDELINES:
+- Modern websites often use textarea for search inputs, not input (e.g., Google uses textarea[name='q'])
+- Search boxes might be: textarea[name='q'], input[type='search'], #search, or [role='searchbox']
+- Submit buttons might be: button[type='submit'], input[type='submit'], button:has-text('Search'), or [aria-label*='Search']
+- Always prefer more specific selectors: use IDs (#id), data attributes ([data-testid]), or name attributes
+- For Google: search box is textarea[name='q'] or #APjFqb, submit is input[name='btnK'] or button[aria-label*='Search']
+
 Available actions:
 - navigate: {"action": "navigate", "url": "https://example.com"}
-- type: {"action": "type", "selector": "input[name='q']", "text": "search query"}
-- click: {"action": "click", "selector": "button[type='submit']"}
+- type: {"action": "type", "selector": "textarea[name='q']", "text": "search query"}  (use textarea for modern search boxes)
+- click: {"action": "click", "selector": "input[name='btnK']"}  (be specific about button selectors)
 - wait_for: {"action": "wait_for", "selector": "[data-id]", "timeout": 5000}
 - extract: {"action": "extract", "query": "Get top 3 results", "schema": {"name": ".product-name", "price": ".price"}}
 
