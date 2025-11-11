@@ -265,24 +265,31 @@ class BrowserAgent:
         site_selectors = get_selectors_for_site(self.current_site)
         
         try:
-            # Pass schema and limit as a single object to avoid argument count issues
+            # Use a smarter extraction strategy - extract from product containers
             result = await self.page.evaluate("""
-                ({schema, limit, siteSelectors}) => {
+                ({schema, limit, siteSelectors, site}) => {
                     const data = {};
                     
                     // Helper to try multiple selectors
-                    const trySelectors = (selectors, isLink = false) => {
+                    const trySelectors = (selectors, container = null, isLink = false) => {
                         for (const selector of selectors) {
                             try {
-                                const elements = document.querySelectorAll(selector);
+                                const searchIn = container || document;
+                                const elements = searchIn.querySelectorAll(selector);
                                 if (elements.length > 0) {
                                     if (isLink) {
                                         return Array.from(elements).map(el => {
-                                            const href = el.href || el.getAttribute('href') || el.closest('a')?.href || '';
-                                            return href.startsWith('http') ? href : (window.location.origin + href);
-                                        });
+                                            const linkEl = el.tagName === 'A' ? el : el.closest('a');
+                                            if (linkEl) {
+                                                const href = linkEl.href || linkEl.getAttribute('href') || '';
+                                                return href.startsWith('http') ? href : (window.location.origin + href);
+                                            }
+                                            return '';
+                                        }).filter(href => href);
                                     } else {
-                                        return Array.from(elements).map(el => el.textContent?.trim() || el.innerText?.trim() || '');
+                                        return Array.from(elements).map(el => {
+                                            return el.textContent?.trim() || el.innerText?.trim() || el.title || '';
+                                        }).filter(text => text);
                                     }
                                 }
                             } catch (e) {
@@ -292,33 +299,95 @@ class BrowserAgent:
                         return [];
                     };
                     
-                    for (const [key, selector] of Object.entries(schema)) {
-                        let selectorsToTry = [selector];
+                    // For Flipkart, try to find product containers first
+                    let productContainers = [];
+                    if (site === 'flipkart') {
+                        // Try multiple container selectors
+                        const containerSelectors = [
+                            '[data-id]',
+                            '._1AtVbE',
+                            '._2kHMtA',
+                            'div[data-id]',
+                            '._13oc-S > div'
+                        ];
+                        for (const sel of containerSelectors) {
+                            const containers = document.querySelectorAll(sel);
+                            if (containers.length > 0) {
+                                productContainers = Array.from(containers);
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // If we found containers, extract from each container
+                    if (productContainers.length > 0) {
+                        const items = [];
+                        const maxItems = limit && limit > 0 ? limit : productContainers.length;
                         
-                        // Add site-specific fallbacks
-                        if (siteSelectors) {
-                            if (key === 'name' && siteSelectors.product_name) {
-                                selectorsToTry = selectorsToTry.concat(siteSelectors.product_name);
-                            } else if (key === 'price' && siteSelectors.product_price) {
-                                selectorsToTry = selectorsToTry.concat(siteSelectors.product_price);
-                            } else if (key === 'rating' && siteSelectors.product_rating) {
-                                selectorsToTry = selectorsToTry.concat(siteSelectors.product_rating);
-                            } else if ((key === 'link' || key === 'url') && siteSelectors.product_link) {
-                                selectorsToTry = selectorsToTry.concat(siteSelectors.product_link);
+                        for (let i = 0; i < Math.min(maxItems, productContainers.length); i++) {
+                            const container = productContainers[i];
+                            const item = {};
+                            
+                            for (const [key, selector] of Object.entries(schema)) {
+                                let selectorsToTry = [selector];
+                                
+                                // Add site-specific fallbacks
+                                if (siteSelectors) {
+                                    if (key === 'name' && siteSelectors.product_name) {
+                                        selectorsToTry = selectorsToTry.concat(siteSelectors.product_name);
+                                    } else if (key === 'price' && siteSelectors.product_price) {
+                                        selectorsToTry = selectorsToTry.concat(siteSelectors.product_price);
+                                    } else if (key === 'rating' && siteSelectors.product_rating) {
+                                        selectorsToTry = selectorsToTry.concat(siteSelectors.product_rating);
+                                    } else if ((key === 'link' || key === 'url') && siteSelectors.product_link) {
+                                        selectorsToTry = selectorsToTry.concat(siteSelectors.product_link);
+                                    }
+                                }
+                                
+                                const values = trySelectors(selectorsToTry, container, key === 'link' || key === 'url');
+                                item[key] = values[0] || null;  // Get first match from container
+                            }
+                            
+                            // Only add item if it has at least name or link
+                            if (item.name || item.link) {
+                                items.push(item);
                             }
                         }
                         
-                        const values = trySelectors(selectorsToTry, key === 'link' || key === 'url');
-                        
-                        if (limit && limit > 0) {
-                            data[key] = values.slice(0, limit);
-                        } else {
-                            data[key] = values;
+                        // Convert to field-based format
+                        for (const key of Object.keys(schema)) {
+                            data[key] = items.map(item => item[key] || null);
+                        }
+                    } else {
+                        // Fallback: extract globally
+                        for (const [key, selector] of Object.entries(schema)) {
+                            let selectorsToTry = [selector];
+                            
+                            if (siteSelectors) {
+                                if (key === 'name' && siteSelectors.product_name) {
+                                    selectorsToTry = selectorsToTry.concat(siteSelectors.product_name);
+                                } else if (key === 'price' && siteSelectors.product_price) {
+                                    selectorsToTry = selectorsToTry.concat(siteSelectors.product_price);
+                                } else if (key === 'rating' && siteSelectors.product_rating) {
+                                    selectorsToTry = selectorsToTry.concat(siteSelectors.product_rating);
+                                } else if ((key === 'link' || key === 'url') && siteSelectors.product_link) {
+                                    selectorsToTry = selectorsToTry.concat(siteSelectors.product_link);
+                                }
+                            }
+                            
+                            const values = trySelectors(selectorsToTry, null, key === 'link' || key === 'url');
+                            
+                            if (limit && limit > 0) {
+                                data[key] = values.slice(0, limit);
+                            } else {
+                                data[key] = values;
+                            }
                         }
                     }
+                    
                     return data;
                 }
-            """, {"schema": schema, "limit": limit or 0, "siteSelectors": site_selectors})
+            """, {"schema": schema, "limit": limit or 0, "siteSelectors": site_selectors, "site": self.current_site})
             
             # Transform to list of objects if multiple fields
             if result and len(result) > 0:
@@ -336,17 +405,18 @@ class BrowserAgent:
                         if field == 'price' and value:
                             # Extract numeric price (remove currency symbols, commas)
                             import re
-                            price_str = re.sub(r'[^\d.]', '', str(value))
+                            # Handle Indian format: ₹1,00,000 or 1,00,000
+                            price_str = re.sub(r'[^\d.]', '', str(value).replace(',', ''))
                             try:
                                 item[field] = float(price_str) if price_str else None
                             except:
                                 item[field] = value
                         elif field == 'rating' and value:
-                            # Extract numeric rating
+                            # Extract numeric rating (handle "4.5 out of 5" or just "4.5")
                             import re
-                            rating_str = re.search(r'[\d.]+', str(value))
+                            rating_match = re.search(r'([\d.]+)', str(value))
                             try:
-                                item[field] = float(rating_str.group()) if rating_str else None
+                                item[field] = float(rating_match.group(1)) if rating_match else None
                             except:
                                 item[field] = value
                         else:
