@@ -253,7 +253,7 @@ class BrowserAgent:
             return []
 
     async def extract(self, schema: dict, limit: int = None) -> dict:
-        """Extract data from page using CSS selectors.
+        """Extract data from page using CSS selectors with site-specific fallbacks.
         
         Schema format: {"field_name": "css_selector"}
         Returns structured data with arrays for each field.
@@ -261,36 +261,64 @@ class BrowserAgent:
         if not self.page:
             return {"status": "error", "error": "Browser not initialized"}
         
+        # Get site-specific selectors as fallback
+        site_selectors = get_selectors_for_site(self.current_site)
+        
         try:
             # Pass schema and limit as a single object to avoid argument count issues
             result = await self.page.evaluate("""
-                ({schema, limit}) => {
+                ({schema, limit, siteSelectors}) => {
                     const data = {};
+                    
+                    // Helper to try multiple selectors
+                    const trySelectors = (selectors, isLink = false) => {
+                        for (const selector of selectors) {
+                            try {
+                                const elements = document.querySelectorAll(selector);
+                                if (elements.length > 0) {
+                                    if (isLink) {
+                                        return Array.from(elements).map(el => {
+                                            const href = el.href || el.getAttribute('href') || el.closest('a')?.href || '';
+                                            return href.startsWith('http') ? href : (window.location.origin + href);
+                                        });
+                                    } else {
+                                        return Array.from(elements).map(el => el.textContent?.trim() || el.innerText?.trim() || '');
+                                    }
+                                }
+                            } catch (e) {
+                                continue;
+                            }
+                        }
+                        return [];
+                    };
+                    
                     for (const [key, selector] of Object.entries(schema)) {
-                        const elements = document.querySelectorAll(selector);
-                        if (elements.length > 0) {
-                            let values = [];
-                            if (key === 'link' || key === 'url') {
-                                // For links, get href attribute
-                                values = Array.from(elements).map(el => {
-                                    const href = el.href || el.getAttribute('href') || '';
-                                    return href.startsWith('http') ? href : (window.location.origin + href);
-                                });
-                            } else {
-                                // For text content
-                                values = Array.from(elements).map(el => el.textContent?.trim() || '');
+                        let selectorsToTry = [selector];
+                        
+                        // Add site-specific fallbacks
+                        if (siteSelectors) {
+                            if (key === 'name' && siteSelectors.product_name) {
+                                selectorsToTry = selectorsToTry.concat(siteSelectors.product_name);
+                            } else if (key === 'price' && siteSelectors.product_price) {
+                                selectorsToTry = selectorsToTry.concat(siteSelectors.product_price);
+                            } else if (key === 'rating' && siteSelectors.product_rating) {
+                                selectorsToTry = selectorsToTry.concat(siteSelectors.product_rating);
+                            } else if ((key === 'link' || key === 'url') && siteSelectors.product_link) {
+                                selectorsToTry = selectorsToTry.concat(siteSelectors.product_link);
                             }
-                            if (limit && limit > 0) {
-                                values = values.slice(0, limit);
-                            }
-                            data[key] = values;
+                        }
+                        
+                        const values = trySelectors(selectorsToTry, key === 'link' || key === 'url');
+                        
+                        if (limit && limit > 0) {
+                            data[key] = values.slice(0, limit);
                         } else {
-                            data[key] = [];
+                            data[key] = values;
                         }
                     }
                     return data;
                 }
-            """, {"schema": schema, "limit": limit or 0})
+            """, {"schema": schema, "limit": limit or 0, "siteSelectors": site_selectors})
             
             # Transform to list of objects if multiple fields
             if result and len(result) > 0:
@@ -302,7 +330,27 @@ class BrowserAgent:
                 for i in range(max_length):
                     item = {}
                     for field in field_names:
-                        item[field] = result[field][i] if i < len(result[field]) else None
+                        value = result[field][i] if i < len(result[field]) else None
+                        
+                        # Clean and parse values
+                        if field == 'price' and value:
+                            # Extract numeric price (remove currency symbols, commas)
+                            import re
+                            price_str = re.sub(r'[^\d.]', '', str(value))
+                            try:
+                                item[field] = float(price_str) if price_str else None
+                            except:
+                                item[field] = value
+                        elif field == 'rating' and value:
+                            # Extract numeric rating
+                            import re
+                            rating_str = re.search(r'[\d.]+', str(value))
+                            try:
+                                item[field] = float(rating_str.group()) if rating_str else None
+                            except:
+                                item[field] = value
+                        else:
+                            item[field] = value
                     structured.append(item)
                 
                 return {

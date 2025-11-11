@@ -18,30 +18,39 @@ SITE_SELECTORS = {
             "[data-id]",
             "._1AtVbE",
             "._2kHMtA",
-            "div[data-id]"
+            "div[data-id]",
+            "._13oc-S"
         ],
         "product_name": [
             "._4rR01T",
             "._2WkVRV",
             "a.s1Q9rs",
+            "._4rR01T",
+            "div._4rR01T",
+            "a[title]",
             "[class*='product-name']"
         ],
         "product_price": [
             "._30jeq3",
             "._1_WHN1",
+            "._25b18c",
+            "div._30jeq3",
             "[class*='price']",
-            "._25b18c"
+            "div[class*='_30jeq3']"
         ],
         "product_rating": [
             "._3LWZlK",
+            "div._3LWZlK",
             "[class*='rating']",
-            "._2_R_DZ"
+            "._2_R_DZ",
+            "div._2_R_DZ span._2_R_DZ"
         ],
         "product_link": [
             "a._1fQZEK",
             "a[href*='/p/']",
             "a.s1Q9rs",
-            "a[href*='flipkart.com']"
+            "a[href*='flipkart.com']",
+            "div._1AtVbE a"
         ]
     },
     "amazon": {

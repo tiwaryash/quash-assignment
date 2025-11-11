@@ -1,7 +1,9 @@
 from fastapi import WebSocket
 from app.services.ai_planner import create_action_plan
 from app.services.browser_agent import browser_agent
+from app.services.filter_results import filter_by_price, get_top_results
 import json
+import re
 
 async def execute_plan(websocket: WebSocket, instruction: str):
     """Main execution loop: plan -> execute -> stream updates."""
@@ -89,6 +91,41 @@ async def execute_plan(websocket: WebSocket, instruction: str):
                     schema = action.get("schema", {})
                     limit = action.get("limit", None)
                     result = await browser_agent.extract(schema, limit)
+                    
+                    # Post-process extracted data: filter by price if needed
+                    if result.get("status") == "success" and result.get("data"):
+                        extracted_data = result["data"]
+                        
+                        # Check if instruction has price filter
+                        # Extract price from original instruction if available
+                        max_price = None
+                        if "under" in instruction.lower() or "below" in instruction.lower():
+                            # Try to extract price from instruction
+                            price_match = re.search(r'[₹$]?\s*([\d,]+)', instruction)
+                            if price_match:
+                                try:
+                                    max_price = float(price_match.group(1).replace(',', ''))
+                                except:
+                                    pass
+                        
+                        if max_price:
+                            filtered = filter_by_price(extracted_data, max_price=max_price)
+                            if filtered:
+                                # Get top results by rating
+                                top_results = get_top_results(filtered, limit or 3)
+                                result["data"] = top_results
+                                result["count"] = len(top_results)
+                                result["filtered"] = True
+                                result["max_price"] = max_price
+                            else:
+                                result["data"] = []
+                                result["count"] = 0
+                                result["message"] = f"No products found under ₹{max_price:,.0f}"
+                        else:
+                            # Just get top results by rating
+                            top_results = get_top_results(extracted_data, limit or 3)
+                            result["data"] = top_results
+                            result["count"] = len(top_results)
                     
                 else:
                     result = {

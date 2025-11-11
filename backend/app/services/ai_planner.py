@@ -7,11 +7,11 @@ client = OpenAI(api_key=settings.openai_api_key)
 SYSTEM_PROMPT = """You are a browser automation planner. Convert user instructions into a JSON object with an "actions" array.
 
 IMPORTANT CONTEXT:
-- E-commerce searches can be on Flipkart, Amazon, Myntra, Snapdeal, or other shopping sites
-- If user mentions a specific site (e.g., "on Flipkart"), use that site
-- If no site mentioned, default to Flipkart for Indian market, Amazon for international
-- For price filters (e.g., "under ₹1,00,000"), include price in search query or filter after results
+- E-commerce searches should work across MULTIPLE sites (Flipkart, Amazon, etc.) for comparison
+- If user wants "best" or "compare", search on multiple sites
+- For price filters (e.g., "under ₹1,00,000"), you MUST filter results after extraction
 - Always navigate to the actual website URL, never "example.com"
+- Extract: name, price (as number), rating (as number), and link (full URL)
 
 SITE-SPECIFIC SELECTORS:
 - Flipkart: 
@@ -42,13 +42,21 @@ Available actions:
 - navigate: {"action": "navigate", "url": "https://www.flipkart.com"}  (use real URLs)
 - type: {"action": "type", "selector": "input[name='q']", "text": "MacBook Air 13 inch"}
 - click: {"action": "click", "selector": "button[type='submit']"}
-- wait_for: {"action": "wait_for", "selector": "[data-id]", "timeout": 10000}
-- extract: {"action": "extract", "limit": 3, "schema": {"name": "._4rR01T", "price": "._30jeq3", "rating": "._3LWZlK", "link": "a._1fQZEK"}}
+- wait_for: {"action": "wait_for", "selector": "[data-id]", "timeout": 15000}
+- extract: {"action": "extract", "limit": 10, "schema": {"name": "._4rR01T", "price": "._30jeq3", "rating": "._3LWZlK", "link": "a._1fQZEK"}}
 
-For product searches with price filters:
-1. Include price range in search text if possible (e.g., "MacBook Air under 100000")
-2. Or search first, then filter results
-3. Extract: name, price (as number), rating, and link (full URL)
+For product searches:
+1. Search on the site (don't include price in search text, filter after)
+2. Wait for results to load (use longer timeout: 15000ms)
+3. Extract MORE results than needed (limit: 10), then filter by price
+4. For multi-site comparison, repeat the flow for each site
+5. Extract: name, price (numeric), rating (numeric), link (full URL)
+
+For Flipkart selectors:
+- name: "._4rR01T" or "div._4rR01T" or "a[title]"
+- price: "._30jeq3" or "div._30jeq3"
+- rating: "._3LWZlK" or "div._3LWZlK"
+- link: "a._1fQZEK" or "a[href*='/p/']"
 
 Return ONLY valid JSON object with "actions" key containing the array, no markdown, no explanations."""
 
@@ -77,10 +85,16 @@ async def create_action_plan(instruction: str) -> list[dict]:
         site = 'Snapdeal'
     
     if is_ecommerce:
-        if site:
-            enhanced_instruction = f"{instruction}\n\nContext: This is an e-commerce product search on {site}. Navigate to {site}, search for products, and extract name, price, rating, and product links."
+        # Check if user wants comparison across sites
+        wants_comparison = any(word in instruction_lower for word in ['compare', 'best', 'across', 'multiple', 'both'])
+        
+        if wants_comparison and not site:
+            # Multi-site search
+            enhanced_instruction = f"{instruction}\n\nContext: User wants to compare products across multiple sites. Search on BOTH Flipkart and Amazon, extract results from each, then provide the best options."
+        elif site:
+            enhanced_instruction = f"{instruction}\n\nContext: This is an e-commerce product search on {site}. Navigate to {site}, search for products, wait for results to load (15s timeout), extract name, price (as number), rating (as number), and product links. Extract at least 10 results, then filter by price if specified."
         else:
-            enhanced_instruction = f"{instruction}\n\nContext: This is an e-commerce product search. Use Flipkart (for Indian market) or Amazon. Navigate to the site, search for products, and extract name, price, rating, and product links."
+            enhanced_instruction = f"{instruction}\n\nContext: This is an e-commerce product search. Use Flipkart for Indian market. Navigate to the site, search for products, wait for results (15s timeout), extract name, price (as number), rating (as number), and product links. Extract at least 10 results to filter properly."
     
     try:
         response = client.chat.completions.create(
