@@ -145,6 +145,16 @@ export default function ChatWindow() {
             );
           }
           
+          if (msg.type === 'status') {
+            return (
+              <div key={idx} className="mb-2">
+                <div className="bg-blue-100 border border-blue-300 rounded-lg p-3 text-blue-800 text-sm">
+                  {msg.message}
+                </div>
+              </div>
+            );
+          }
+          
           return (
             <div key={idx} className="mb-2">
               <div className="inline-block px-3 py-2 rounded-lg bg-gray-200 text-gray-700">

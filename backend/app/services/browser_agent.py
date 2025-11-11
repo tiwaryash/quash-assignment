@@ -97,30 +97,58 @@ class BrowserAgent:
                 "selector": selector
             }
 
-    async def extract(self, schema: dict) -> dict:
-        """Extract data from page using CSS selectors."""
+    async def extract(self, schema: dict, limit: int = None) -> dict:
+        """Extract data from page using CSS selectors.
+        
+        Schema format: {"field_name": "css_selector"}
+        Returns structured data with arrays for each field.
+        """
         if not self.page:
             return {"status": "error", "error": "Browser not initialized"}
         
         try:
             result = await self.page.evaluate("""
-                (schema) => {
+                (schema, limit) => {
                     const data = {};
                     for (const [key, selector] of Object.entries(schema)) {
                         const elements = document.querySelectorAll(selector);
                         if (elements.length > 0) {
-                            data[key] = Array.from(elements).map(el => el.textContent?.trim() || '');
+                            let values = Array.from(elements).map(el => el.textContent?.trim() || '');
+                            if (limit && limit > 0) {
+                                values = values.slice(0, limit);
+                            }
+                            data[key] = values;
                         } else {
                             data[key] = [];
                         }
                     }
                     return data;
                 }
-            """, schema)
+            """, schema, limit or 0)
+            
+            # Transform to list of objects if multiple fields
+            if result and len(result) > 0:
+                field_names = list(result.keys())
+                max_length = max(len(result[field]) for field in field_names) if result else 0
+                
+                # Create list of objects
+                structured = []
+                for i in range(max_length):
+                    item = {}
+                    for field in field_names:
+                        item[field] = result[field][i] if i < len(result[field]) else None
+                    structured.append(item)
+                
+                return {
+                    "status": "success",
+                    "data": structured,
+                    "count": len(structured)
+                }
             
             return {
                 "status": "success",
-                "data": result
+                "data": [],
+                "count": 0
             }
         except Exception as e:
             return {

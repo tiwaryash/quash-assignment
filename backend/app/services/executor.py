@@ -66,7 +66,8 @@ async def execute_plan(websocket: WebSocket, instruction: str):
                 
             elif action_type == "extract":
                 schema = action.get("schema", {})
-                result = await browser_agent.extract(schema)
+                limit = action.get("limit", None)
+                result = await browser_agent.extract(schema, limit)
                 
             else:
                 result = {
