@@ -1,4 +1,5 @@
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext
+from app.services.site_selectors import get_selectors_for_site, detect_site_from_url
 import asyncio
 
 class BrowserAgent:
@@ -7,6 +8,7 @@ class BrowserAgent:
         self.context: BrowserContext | None = None
         self.page: Page | None = None
         self.playwright = None
+        self.current_site: str = "generic"  # Track current site for selector strategies
 
     async def start(self):
         """Initialize browser instance."""
@@ -31,7 +33,7 @@ class BrowserAgent:
         self.page = None
 
     async def navigate(self, url: str) -> dict:
-        """Navigate to a URL."""
+        """Navigate to a URL and detect the site type."""
         if not self.page:
             await self.start()
         
@@ -45,10 +47,15 @@ class BrowserAgent:
             await self.page.wait_for_load_state("networkidle", timeout=10000)
             current_url = self.page.url
             title = await self.page.title()
+            
+            # Detect site type for better selector strategies
+            self.current_site = detect_site_from_url(current_url)
+            
             return {
                 "status": "success",
                 "url": current_url,
-                "title": title
+                "title": title,
+                "site": self.current_site
             }
         except Exception as e:
             return {
@@ -66,6 +73,9 @@ class BrowserAgent:
         
         # If it's a submit button, try common alternatives
         if "button[type='submit']" in selector or "submit" in selector.lower():
+            # Add site-specific search button selectors
+            site_selectors = get_selectors_for_site(self.current_site)
+            selectors_to_try.extend(site_selectors.get("search_button", [])[:3])
             selectors_to_try.extend([
                 "input[name='btnK']",  # Google search button
                 "input[type='submit']",
@@ -74,6 +84,10 @@ class BrowserAgent:
                 "button[aria-label*='Search']",
                 "button[aria-label*='search']"
             ])
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        selectors_to_try = [x for x in selectors_to_try if not (x in seen or seen.add(x))]
         elif "button" in selector:
             # Try to find button by text if it's a generic button selector
             selectors_to_try.extend([
@@ -125,6 +139,12 @@ class BrowserAgent:
         # List of selectors to try in order
         selectors_to_try = [selector]
         
+        # Get site-specific selectors if available
+        site_selectors = get_selectors_for_site(self.current_site)
+        if selector not in site_selectors.get("search_input", []):
+            # Add site-specific search input selectors
+            selectors_to_try.extend(site_selectors.get("search_input", [])[:3])
+        
         # If the original selector is input[name='q'], add textarea alternative (common for Google, etc.)
         if "input[name='q']" in selector:
             selectors_to_try.extend([
@@ -143,6 +163,10 @@ class BrowserAgent:
                 "input[type='search']",
                 "[role='searchbox']"
             ])
+        
+        # Remove duplicates while preserving order
+        seen = set()
+        selectors_to_try = [x for x in selectors_to_try if not (x in seen or seen.add(x))]
         
         # Try each selector until one works
         last_error = None
