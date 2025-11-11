@@ -1,11 +1,19 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import ActionCard from './ActionCard';
 
 interface Message {
   type: string;
   message?: string;
   timestamp: number;
+  action?: string;
+  status?: string;
+  step?: number;
+  total?: number;
+  details?: any;
+  result?: any;
+  data?: any;
 }
 
 export default function ChatWindow() {
@@ -13,6 +21,15 @@ export default function ChatWindow() {
   const [input, setInput] = useState('');
   const [connected, setConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  useEffect(() => {
+    scrollToBottom();
+  }, [messages]);
 
   useEffect(() => {
     const ws = new WebSocket('ws://localhost:8000/ws');
@@ -56,7 +73,7 @@ export default function ChatWindow() {
 
   const sendMessage = () => {
     if (input.trim() && wsRef.current && connected) {
-      wsRef.current.send(input);
+      wsRef.current.send(JSON.stringify({ instruction: input }));
       setMessages(prev => [...prev, {
         type: 'user',
         message: input,
@@ -75,19 +92,68 @@ export default function ChatWindow() {
       </div>
 
       <div className="flex-1 overflow-y-auto border rounded-lg p-4 mb-4 bg-gray-50">
-        {messages.map((msg, idx) => (
-          <div key={idx} className={`mb-2 ${msg.type === 'user' ? 'text-right' : ''}`}>
-            <div className={`inline-block px-3 py-2 rounded-lg ${
-              msg.type === 'user' 
-                ? 'bg-blue-500 text-white' 
-                : msg.type === 'system'
-                ? 'bg-gray-200 text-gray-700'
-                : 'bg-white border'
-            }`}>
-              {msg.message || JSON.stringify(msg)}
+        {messages.map((msg, idx) => {
+          if (msg.type === 'user') {
+            return (
+              <div key={idx} className="mb-2 text-right">
+                <div className="inline-block px-3 py-2 rounded-lg bg-blue-500 text-white">
+                  {msg.message}
+                </div>
+              </div>
+            );
+          }
+          
+          if (msg.type === 'action_status') {
+            return (
+              <ActionCard
+                key={idx}
+                action={msg.action || 'unknown'}
+                status={msg.status || 'pending'}
+                step={msg.step}
+                total={msg.total}
+                details={msg.details}
+                result={msg.result}
+              />
+            );
+          }
+          
+          if (msg.type === 'plan') {
+            return (
+              <div key={idx} className="mb-2">
+                <div className="bg-purple-100 border border-purple-300 rounded-lg p-3">
+                  <div className="font-semibold mb-2">📋 Action Plan ({msg.data?.length || 0} steps)</div>
+                  <div className="text-sm space-y-1">
+                    {msg.data?.map((action: any, i: number) => (
+                      <div key={i} className="opacity-75">
+                        {i + 1}. {action.action} {action.selector && `(${action.selector})`}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            );
+          }
+          
+          if (msg.type === 'error') {
+            return (
+              <div key={idx} className="mb-2">
+                <div className="bg-red-100 border border-red-300 rounded-lg p-3 text-red-800">
+                  <div className="font-semibold">❌ Error</div>
+                  <div className="text-sm">{msg.message}</div>
+                </div>
+              </div>
+            );
+          }
+          
+          return (
+            <div key={idx} className="mb-2">
+              <div className="inline-block px-3 py-2 rounded-lg bg-gray-200 text-gray-700">
+                {msg.message || JSON.stringify(msg)}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
+        <div ref={messagesEndRef} />
       </div>
 
       <div className="flex gap-2">
@@ -96,7 +162,7 @@ export default function ChatWindow() {
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyPress={(e) => e.key === 'Enter' && sendMessage()}
-          placeholder="Type a message..."
+          placeholder="Type an instruction (e.g., 'Navigate to google.com')..."
           className="flex-1 px-4 py-2 border rounded-lg"
           disabled={!connected}
         />
@@ -111,4 +177,3 @@ export default function ChatWindow() {
     </div>
   );
 }
-
