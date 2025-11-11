@@ -10,7 +10,9 @@ export default function Home() {
           </h1>
           <p className="text-slate-400 text-lg">AI-Powered Conversational Browser Automation</p>
         </div>
-        <ChatWindow />
+        <div className="w-full">
+          <ChatWindow />
+        </div>
       </div>
     </div>
   );
