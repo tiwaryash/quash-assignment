@@ -104,14 +104,27 @@ async def execute_plan(websocket: WebSocket, instruction: str):
                         # Check if instruction has price filter
                         # Extract price from original instruction if available
                         max_price = None
-                        if "under" in instruction.lower() or "below" in instruction.lower():
-                            # Try to extract price from instruction
-                            price_match = re.search(r'[₹$]?\s*([\d,]+)', instruction)
-                            if price_match:
-                                try:
-                                    max_price = float(price_match.group(1).replace(',', ''))
-                                except:
-                                    pass
+                        instruction_lower = instruction.lower()
+                        if "under" in instruction_lower or "below" in instruction_lower:
+                            # Look for price pattern after "under" or "below"
+                            # Match: "under ₹1,00,000" or "under 100000" or "below ₹50,000"
+                            price_patterns = [
+                                r'(?:under|below)\s*[₹$]?\s*([\d,]+)',  # After "under" or "below"
+                                r'[₹$]\s*([\d,]+)',  # Direct currency symbol
+                            ]
+                            for pattern in price_patterns:
+                                price_match = re.search(pattern, instruction, re.IGNORECASE)
+                                if price_match:
+                                    price_str = price_match.group(1).replace(',', '')
+                                    try:
+                                        max_price = float(price_str)
+                                        # Validate it's a reasonable price (not just "13" from "13-inch")
+                                        if max_price > 100:  # Minimum reasonable price
+                                            break
+                                        else:
+                                            max_price = None
+                                    except:
+                                        pass
                         
                         if max_price:
                             filtered = filter_by_price(extracted_data, max_price=max_price)

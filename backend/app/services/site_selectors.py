@@ -23,27 +23,38 @@ SITE_SELECTORS = {
         ],
         "product_name": [
             "._4rR01T",
+            "div._4rR01T",
+            "a._4rR01T",
             "._2WkVRV",
             "a.s1Q9rs",
-            "._4rR01T",
-            "div._4rR01T",
             "a[title]",
-            "[class*='product-name']"
+            "div[class*='_4rR01T']",
+            "span[class*='_4rR01T']",
+            "[class*='product-name']",
+            "h1",
+            "h2",
+            "h3"
         ],
         "product_price": [
             "._30jeq3",
+            "div._30jeq3",
+            "span._30jeq3",
             "._1_WHN1",
             "._25b18c",
-            "div._30jeq3",
+            "div[class*='_30jeq3']",
+            "span[class*='_30jeq3']",
             "[class*='price']",
-            "div[class*='_30jeq3']"
+            "div[class*='price']"
         ],
         "product_rating": [
             "._3LWZlK",
             "div._3LWZlK",
+            "span._3LWZlK",
+            "div[class*='_3LWZlK']",
             "[class*='rating']",
             "._2_R_DZ",
-            "div._2_R_DZ span._2_R_DZ"
+            "div._2_R_DZ span._2_R_DZ",
+            "[aria-label*='star']"
         ],
         "product_link": [
             "a._1fQZEK",

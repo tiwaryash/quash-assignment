@@ -264,6 +264,41 @@ class BrowserAgent:
         # Get site-specific selectors as fallback
         site_selectors = get_selectors_for_site(self.current_site)
         
+        # First, try to diagnose the page structure if extraction fails
+        diagnostic = await self.page.evaluate("""
+            () => {
+                const info = {
+                    url: window.location.href,
+                    title: document.title,
+                    productContainers: [],
+                    sampleSelectors: {}
+                };
+                
+                // Check for common Flipkart selectors
+                const checks = [
+                    { name: 'data-id divs', selector: 'div[data-id]', count: document.querySelectorAll('div[data-id]').length },
+                    { name: '_1AtVbE class', selector: '._1AtVbE', count: document.querySelectorAll('._1AtVbE').length },
+                    { name: '_2kHMtA class', selector: '._2kHMtA', count: document.querySelectorAll('._2kHMtA').length },
+                    { name: '_4rR01T (name)', selector: '._4rR01T', count: document.querySelectorAll('._4rR01T').length },
+                    { name: '_30jeq3 (price)', selector: '._30jeq3', count: document.querySelectorAll('._30jeq3').length },
+                    { name: '_3LWZlK (rating)', selector: '._3LWZlK', count: document.querySelectorAll('._3LWZlK').length },
+                    { name: 'product links', selector: 'a[href*="/p/"]', count: document.querySelectorAll('a[href*="/p/"]').length }
+                ];
+                
+                info.selectorChecks = checks;
+                
+                // Get sample HTML structure
+                const firstContainer = document.querySelector('div[data-id]') || document.querySelector('._1AtVbE');
+                if (firstContainer) {
+                    info.sampleHTML = firstContainer.outerHTML.substring(0, 500);
+                }
+                
+                return info;
+            }
+        """)
+        
+        print(f"Page diagnostic: {diagnostic}")
+        
         try:
             # Use a smarter extraction strategy - extract from product containers
             result = await self.page.evaluate("""
@@ -302,19 +337,26 @@ class BrowserAgent:
                     // For Flipkart, try to find product containers first
                     let productContainers = [];
                     if (site === 'flipkart') {
-                        // Try multiple container selectors
+                        // Try multiple container selectors - Flipkart uses various structures
                         const containerSelectors = [
-                            '[data-id]',
-                            '._1AtVbE',
-                            '._2kHMtA',
-                            'div[data-id]',
-                            '._13oc-S > div'
+                            'div[data-id]',  // Most common
+                            '._1AtVbE',  // Product card
+                            '._2kHMtA',  // Alternative card
+                            '._13oc-S > div',  // Grid container
+                            '[class*="_1AtVbE"]',  // Partial class match
+                            'div[class*="product"]',  // Generic product div
+                            'a[href*="/p/"]'  // Product links as containers
                         ];
                         for (const sel of containerSelectors) {
-                            const containers = document.querySelectorAll(sel);
-                            if (containers.length > 0) {
-                                productContainers = Array.from(containers);
-                                break;
+                            try {
+                                const containers = document.querySelectorAll(sel);
+                                if (containers.length > 0) {
+                                    productContainers = Array.from(containers).slice(0, 20); // Limit to 20
+                                    console.log(`Found ${productContainers.length} containers with selector: ${sel}`);
+                                    break;
+                                }
+                            } catch (e) {
+                                continue;
                             }
                         }
                     }
@@ -344,8 +386,25 @@ class BrowserAgent:
                                     }
                                 }
                                 
-                                const values = trySelectors(selectorsToTry, container, key === 'link' || key === 'url');
-                                item[key] = values[0] || null;  // Get first match from container
+                                // For links, also try to find the closest anchor
+                                if (key === 'link' || key === 'url') {
+                                    const values = trySelectors(selectorsToTry, container, true);
+                                    if (values[0]) {
+                                        item[key] = values[0];
+                                    } else {
+                                        // Fallback: find any link in container
+                                        const linkEl = container.querySelector('a[href*="/p/"]') || container.closest('a[href*="/p/"]');
+                                        if (linkEl) {
+                                            const href = linkEl.href || linkEl.getAttribute('href') || '';
+                                            item[key] = href.startsWith('http') ? href : (window.location.origin + href);
+                                        } else {
+                                            item[key] = null;
+                                        }
+                                    }
+                                } else {
+                                    const values = trySelectors(selectorsToTry, container, false);
+                                    item[key] = values[0] || null;  // Get first match from container
+                                }
                             }
                             
                             // Only add item if it has at least name or link
@@ -429,6 +488,16 @@ class BrowserAgent:
                     "count": len(structured)
                 }
             
+            # If no data found, include diagnostic info
+            if not result or len(result) == 0 or (isinstance(result, dict) and all(not v or len(v) == 0 for v in result.values() if isinstance(v, list))):
+                return {
+                    "status": "success",
+                    "data": [],
+                    "count": 0,
+                    "diagnostic": diagnostic,
+                    "message": f"No data extracted. Found {diagnostic.get('selectorChecks', [{}])[0].get('count', 0)} product containers."
+                }
+            
             return {
                 "status": "success",
                 "data": [],
@@ -437,7 +506,8 @@ class BrowserAgent:
         except Exception as e:
             return {
                 "status": "error",
-                "error": str(e)
+                "error": str(e),
+                "diagnostic": diagnostic if 'diagnostic' in locals() else None
             }
 
 # Global instance
