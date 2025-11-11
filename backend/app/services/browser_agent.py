@@ -88,7 +88,8 @@ class BrowserAgent:
         # Remove duplicates while preserving order
         seen = set()
         selectors_to_try = [x for x in selectors_to_try if not (x in seen or seen.add(x))]
-        elif "button" in selector:
+        
+        if "button" in selector and "submit" not in selector.lower():
             # Try to find button by text if it's a generic button selector
             selectors_to_try.extend([
                 "input[type='submit']",
