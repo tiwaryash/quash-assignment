@@ -90,14 +90,19 @@ playwright install chromium
 
 5. Create `.env` file:
 ```bash
+cd backend
 cp .env.example .env
 ```
 
-6. Add your OpenAI API key to `.env`:
-```
-OPENAI_API_KEY=sk-your-key-here
-OPENAI_MODEL=gpt-4o-mini
-```
+6. **IMPORTANT:** Add your OpenAI API key to `backend/.env`:
+   - Get your API key from: https://platform.openai.com/account/api-keys
+   - Open `backend/.env` file
+   - Replace `your-api-key-here` with your actual key:
+   ```
+   OPENAI_API_KEY=sk-your-actual-key-here
+   OPENAI_MODEL=gpt-4o-mini
+   ```
+   - **Make sure the key starts with `sk-`**
 
 7. Run the server:
 ```bash
