@@ -42,10 +42,10 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                 return
         
         # Apply learned preferences to instruction
-        instruction = conversation_manager.apply_learned_preferences(instruction, session_id)
+        instruction = await conversation_manager.apply_learned_preferences(instruction, session_id)
         
         # Check if clarification is needed
-        clarification = conversation_manager.needs_clarification(instruction, session_id)
+        clarification = await conversation_manager.needs_clarification(instruction, session_id)
         if clarification:
             conversation_manager.store_clarification(clarification, instruction, session_id)
             # Ensure original instruction is stored
@@ -131,6 +131,32 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                     "message": "Using optimized Google Maps search..."
                 })
                 
+                # Send action cards for each step in the plan to show progress
+                for idx, action in enumerate(plan):
+                    action_type = action.get("action")
+                    # Send executing status for each action
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": action_type,
+                        "status": "executing",
+                        "step": idx + 1,
+                        "total": len(plan),
+                        "details": action
+                    })
+                    # Small delay to show the executing state
+                    await asyncio.sleep(0.3)
+                    
+                    # Mark as completed (we're using optimized path, so these complete quickly)
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": action_type,
+                        "status": "completed",
+                        "step": idx + 1,
+                        "total": len(plan),
+                        "details": action,
+                        "result": {"status": "success", "note": "Using optimized Google Maps search"}
+                    })
+                
                 # Extract query from original instruction
                 original_instruction = manager.session_states.get(session_id, {}).get("original_instruction", instruction)
                 
@@ -156,7 +182,6 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                 if not query or len(query.split()) < 2:
                     query = original_instruction
                 
-                print(f"[EXECUTOR] Extracted query: '{query}' from '{original_instruction}'")
                 
                 # Extract location from query
                 import re
@@ -176,17 +201,28 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                 loc_lower = location.lower()
                 lat, lng = location_coords.get(loc_lower, (12.9250, 77.6400))
                 
-                # Get limit from extract action if present
-                limit = None
+                # Get extraction limit and requested limit from intent_info
+                extraction_limit = None
+                requested_limit = None
                 for action in plan:
                     if action.get("action") == "extract":
-                        limit = action.get("limit", 10)
+                        extraction_limit = action.get("limit", 10)
+                        intent_info = action.get("_intent", {})
+                        requested_limit = intent_info.get("limit", None)
                         break
                 
-                print(f"[EXECUTOR] Direct Google Maps search: query='{query}', location={location}, limit={limit}")
+                # Send executing status for extract action
+                await websocket.send_json({
+                    "type": "action_status",
+                    "action": "extract",
+                    "status": "executing",
+                    "step": len(plan),
+                    "total": len(plan),
+                    "details": {"action": "extract", "limit": extraction_limit}
+                })
                 
-                # Use specialized Maps search function
-                result = await browser_agent.search_google_maps(query, limit=limit or 10, lat=lat, lng=lng)
+                # Use specialized Maps search function - extract more than requested for filtering
+                result = await browser_agent.search_google_maps(query, limit=extraction_limit or 10, lat=lat, lng=lng)
                 
                 # Format result
                 if result.get("status") == "success":
@@ -208,6 +244,17 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                     
                     result["count"] = len(result.get("data", []))
                     
+                    # Apply requested limit if specified (e.g., "top 3")
+                    if requested_limit and result.get("data"):
+                        # Sort by rating and take top N
+                        sorted_data = sorted(
+                            result["data"],
+                            key=lambda x: (x.get("rating") or 0, x.get("reviews") or 0),
+                            reverse=True
+                        )
+                        result["data"] = sorted_data[:requested_limit]
+                        result["count"] = len(result["data"])
+                    
                     # Send result as if it came from extract action
                     await websocket.send_json({
                         "type": "action_status",
@@ -216,7 +263,7 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                         "step": len(plan),
                         "total": len(plan),
                         "result": result,
-                        "details": {"action": "extract", "limit": limit}
+                        "details": {"action": "extract", "limit": requested_limit or extraction_limit}
                     })
                     
                     # Skip normal execution loop
@@ -525,8 +572,10 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                     
                 elif action_type == "extract":
                     schema = action.get("schema", {})
-                    limit = action.get("limit", None)
+                    extraction_limit = action.get("limit", None)  # Limit for extraction (extract more for filtering)
                     intent_info = action.get("_intent", {})
+                    # Get the user's requested limit from intent_info (e.g., "top 3")
+                    requested_limit = intent_info.get("limit", None)
                     
                     # For Google Maps, use the specialized search function if this is local discovery
                     if browser_agent.current_site == "google_maps" and intent_info.get("intent") == "local_discovery":
@@ -561,8 +610,19 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                                 query = query.lower().split(phrase, 1)[-1].strip()
                                 break
                         
-                        # Use the specialized Maps search
-                        result = await browser_agent.search_google_maps(query, limit=limit or 10, lat=lat, lng=lng)
+                        # Use the specialized Maps search - extract more than requested for filtering
+                        result = await browser_agent.search_google_maps(query, limit=extraction_limit or 10, lat=lat, lng=lng)
+                        
+                        # Apply requested limit if specified (e.g., "top 3")
+                        if requested_limit and result.get("status") == "success" and result.get("data"):
+                            # Sort by rating and take top N
+                            sorted_data = sorted(
+                                result["data"],
+                                key=lambda x: (x.get("rating") or 0, x.get("reviews") or 0),
+                                reverse=True
+                            )
+                            result["data"] = sorted_data[:requested_limit]
+                            result["count"] = len(result["data"])
                         
                         # If Maps search was successful, format result to match expected structure
                         if result.get("status") == "success":
@@ -589,7 +649,6 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                                         pass
                             
                             result["count"] = len(result.get("data", []))
-                            print(f"[EXECUTOR] Google Maps extraction: {result['count']} results with fields: {list(result['data'][0].keys()) if result['data'] else []}")
                         
                         # Continue with normal post-processing
                     else:
@@ -650,14 +709,10 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                                         "status": "body",
                                         "message": "[role='alert'], .message, .notification, .alert, h1, h2",
                                         "url": "a[href]"
-                                    }, limit)
+                                    }, extraction_limit)
                         else:
-                            result = await browser_agent.extract(schema, limit)
-                    
-                    # Log extraction result for debugging
-                    print(f"[EXECUTOR] Extraction result: status={result.get('status')}, count={result.get('count')}, data_length={len(result.get('data', []))}")
-                    if result.get("data"):
-                        print(f"[EXECUTOR] First item sample: {result.get('data')[0] if result.get('data') else 'None'}")
+                            # Use extraction_limit for extraction (extract more for filtering)
+                            result = await browser_agent.extract(schema, extraction_limit)
                     
                     # Post-process extracted data based on intent
                     if result.get("status") == "success" and result.get("data"):
@@ -665,12 +720,10 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                         extracted_data = list(result["data"]) if isinstance(result["data"], list) else result["data"]
                         
                         # Debug: Log intent info
-                        print(f"[EXECUTOR] Post-processing: intent={intent_info.get('intent')}, filters={intent_info.get('filters', {})}")
                         
                         # Apply filters based on intent
                         if intent_info.get("intent") == "product_search":
                             filters = intent_info.get("filters", {})
-                            print(f"[EXECUTOR] Product search detected, filters: {filters}")
                             
                             # Price filtering - ensure prices are parsed first
                             if filters.get("price_max"):
@@ -724,14 +777,14 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                                         
                                 filtered = filter_by_price(extracted_data, max_price=filters["price_max"])
                                 if filtered:
-                                    top_results = get_top_results(filtered, limit or 3)
+                                    # Use requested_limit (user's "top 3") instead of extraction limit
+                                    top_results = get_top_results(filtered, requested_limit or 3)
                                     # CRITICAL: Replace the data array completely, don't modify in place
                                     result["data"] = top_results.copy() if hasattr(top_results, 'copy') else list(top_results)
                                     result["count"] = len(result["data"])
                                     result["filtered"] = True
                                     result["max_price"] = filters["price_max"]
                                     # Debug log
-                                    print(f"[EXECUTOR] Price filter applied: {len(extracted_data)} -> {len(filtered)} -> {len(result['data'])} items")
                                 else:
                                     # Show closest matches (only items with valid prices)
                                     items_with_prices = [
@@ -743,7 +796,7 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                                             items_with_prices, 
                                             key=lambda x: float(x.get('price', 0))
                                         )
-                                        closest = sorted_by_price[:limit or 3]
+                                        closest = sorted_by_price[:requested_limit or 3]
                                         result["data"] = closest
                                         result["count"] = len(closest)
                                         result["filtered"] = True
@@ -755,15 +808,15 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                             elif filters.get("price_min"):
                                 filtered = filter_by_price(extracted_data, min_price=filters["price_min"])
                                 if filtered:
-                                    top_results = get_top_results(filtered, limit or 3)
+                                    top_results = get_top_results(filtered, requested_limit or 3)
                                     result["data"] = top_results
                                     result["count"] = len(top_results)
                                 else:
                                     result["data"] = []
                                     result["count"] = 0
                             else:
-                                # Just get top results by rating
-                                top_results = get_top_results(extracted_data, limit or 3)
+                                # Just get top results by rating - use requested_limit
+                                top_results = get_top_results(extracted_data, requested_limit or 3)
                                 result["data"] = top_results
                                 result["count"] = len(top_results)
                             
@@ -774,18 +827,19 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                                     if item.get("rating") and item["rating"] >= filters["rating_min"]
                                 ]
                                 if filtered_by_rating:
-                                    result["data"] = filtered_by_rating[:limit or 3]
+                                    result["data"] = filtered_by_rating[:requested_limit or 3]
                                     result["count"] = len(result["data"])
                         
                         elif intent_info.get("intent") == "local_discovery":
-                            # For local discovery, sort by rating
+                            # For local discovery, sort by rating and apply requested limit
                             if result.get("data"):
                                 sorted_by_rating = sorted(
                                     [item for item in result["data"] if item.get("rating")],
                                     key=lambda x: x.get("rating") or 0,
                                     reverse=True
                                 )
-                                result["data"] = sorted_by_rating[:limit or 3]
+                                # Use requested_limit (user's "top 3") instead of extraction limit
+                                result["data"] = sorted_by_rating[:requested_limit or 3]
                                 result["count"] = len(result["data"])
                     
                 else:
@@ -799,7 +853,6 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                     if "data" in result and isinstance(result["data"], list):
                         # Ensure count matches actual data length
                         result["count"] = len(result["data"])
-                        print(f"[EXECUTOR] Sending extract result: count={result['count']}, data_length={len(result['data'])}")
                 
                 # Send result with full details
                 await websocket.send_json({

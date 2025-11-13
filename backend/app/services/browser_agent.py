@@ -91,21 +91,16 @@ class BrowserAgent:
             last_error = None
             for attempt in range(max_retries):
                 try:
-                    print(f"[DEBUG] Navigation attempt {attempt + 1}/{max_retries}")
                     
                     # For Google Maps, use "load" instead of "domcontentloaded" and skip networkidle
                     if is_google_maps:
-                        print(f"[DEBUG] Using Google Maps navigation strategy")
                         await self.page.goto(url, wait_until="load", timeout=30000)
                         # Google Maps is a heavy SPA that never reaches networkidle
                         # Wait for the search box to appear instead
-                        print(f"[DEBUG] Waiting for Google Maps search box...")
                         try:
                             # Wait for search input to appear (indicates page is ready)
                             await self.page.wait_for_selector('input[aria-label*="Search"], input[placeholder*="Search"], input#searchboxinput', timeout=15000, state="visible")
-                            print(f"[DEBUG] Google Maps search box found")
                         except Exception as wait_error:
-                            print(f"[DEBUG] Search box wait failed: {wait_error}, but continuing...")
                             # Even if search box doesn't appear, wait a bit for page to settle
                             await asyncio.sleep(3)
                     else:
@@ -115,32 +110,26 @@ class BrowserAgent:
                         try:
                             await self.page.wait_for_load_state("networkidle", timeout=10000)
                         except Exception as networkidle_error:
-                            print(f"[DEBUG] Networkidle timeout (this is OK for heavy sites): {networkidle_error}")
                             # For heavy sites, networkidle might never happen, but page is still usable
                             await asyncio.sleep(2)  # Give it a moment anyway
                     
-                    print(f"[DEBUG] Navigation successful")
                     break  # Success, exit retry loop
                 except Exception as e:
                     last_error = e
                     error_str = str(e)
-                    print(f"[DEBUG] Navigation error on attempt {attempt + 1}: {error_str}")
                     
                     # Check if it's a network error that might be retryable
                     if "ERR_HTTP2_PROTOCOL_ERROR" in error_str or "net::" in error_str:
                         if attempt < max_retries - 1:
                             # Wait a bit before retry
-                            print(f"[DEBUG] Retrying after network error...")
                             await asyncio.sleep(2)
                             continue
                     # Check if it's just a timeout (not a critical error for heavy sites)
                     if "Timeout" in error_str and is_google_maps:
-                        print(f"[DEBUG] Timeout on Google Maps, but page may still be usable")
                         # Try to check if page loaded anyway
                         try:
                             current_url_check = self.page.url
                             if current_url_check and "maps" in current_url_check.lower():
-                                print(f"[DEBUG] Page seems to have loaded despite timeout, continuing...")
                                 break
                         except:
                             pass
@@ -151,7 +140,6 @@ class BrowserAgent:
             
             current_url = self.page.url
             title = await self.page.title()
-            print(f"[DEBUG] Navigation complete. URL: {current_url}, Title: {title}")
             
             # Check for CAPTCHA or blocking pages
             captcha_detected = await self._detect_captcha()
@@ -301,7 +289,6 @@ class BrowserAgent:
         if not self.page:
             await self.start()
 
-        print(f"[MAPS] Searching for '{query}' near ({lat}, {lng})")
 
         # Ensure context has India locale/timezone and geolocation (helps results & reduces surprises)
         try:
@@ -309,31 +296,24 @@ class BrowserAgent:
                 await self.context.set_default_navigation_timeout(45000)
                 await self.context.grant_permissions(["geolocation"])
                 await self.context.set_geolocation({"latitude": lat, "longitude": lng, "accuracy": 100})
-                print(f"[MAPS] Set geolocation to ({lat}, {lng})")
-            else:
-                print(f"[MAPS] Context not available, skipping geolocation setup")
         except Exception as e:
             # Some contexts may not support changing geolocation after creation; ignore if not supported
-            print(f"[MAPS] Could not set geolocation: {e}")
             pass
 
         # Build URL containing search term (helps maps initial view)
         encoded = urllib.parse.quote_plus(query)
         maps_url = f"https://www.google.com/maps/search/{encoded}/@{lat},{lng},13z"
-        print(f"[MAPS] Navigating to: {maps_url}")
         
         try:
             await self.page.goto(maps_url, wait_until="load", timeout=30000)
         except Exception as e:
-            print(f"[MAPS] Navigation error (continuing anyway): {e}")
+            pass
 
         # Wait for search box to appear (more reliable than networkidle)
         try:
             await self.page.wait_for_selector("input#searchboxinput, input[aria-label*='Search']", timeout=15000)
-            print(f"[MAPS] Search input found")
         except Exception as e:
             # continue anyway — sometimes input isn't present but page is usable
-            print(f"[MAPS] Search input not found (continuing): {e}")
             pass
 
         # Try to set input value robustly via evaluate (dispatch events)
@@ -366,21 +346,16 @@ class BrowserAgent:
             }
             """
             input_set = await self.page.evaluate(set_input_js, query)
-            print(f"[MAPS] Input value set via JS: {input_set}")
             
             # Press Enter to submit search
             await asyncio.sleep(0.25)
             await self.page.keyboard.press("Enter")
-            print(f"[MAPS] Pressed Enter to submit search")
         except Exception as e:
-            print(f"[MAPS] Failed to set search input via evaluate: {e}")
             # As fallback, try page.fill then Enter
             try:
                 await self.page.fill("input#searchboxinput", query, timeout=3000)
                 await self.page.keyboard.press("Enter")
-                print(f"[MAPS] Used fallback fill method")
             except Exception as e2:
-                print(f"[MAPS] Fallback fill also failed: {e2}")
                 pass
 
         # Poll for results for up to 20 seconds
@@ -390,7 +365,6 @@ class BrowserAgent:
         found = False
         diagnostic = {}
         
-        print(f"[MAPS] Polling for results (up to {total_wait}s)...")
         while elapsed < total_wait:
             # check common result containers counts
             counts = await self.page.evaluate("""
@@ -407,28 +381,23 @@ class BrowserAgent:
             """)
             diagnostic = counts
             
-            print(f"[MAPS] Poll {elapsed:.1f}s: articles={counts.get('roleArticle',0)}, h3s={counts.get('h3s',0)}, pane={counts.get('paneChildren',0)}")
             
             if counts.get("roleArticle", 0) >= 1 or counts.get("dataResultIndex", 0) >= 1 or counts.get("h3s", 0) >= 3 or counts.get("paneChildren", 0) > 0:
                 found = True
-                print(f"[MAPS] Results found!")
                 break
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
 
         # If not found, capture page text to diagnose (maybe blocked)
         if not found:
-            print(f"[MAPS] No results found after {total_wait}s, checking for blocking...")
             page_text = await self.page.evaluate("() => document.body.innerText.slice(0,2000)")
             diagnostic["pageTextPreview"] = page_text[:2000]
             
             # detect captcha keywords
             if any(k in page_text.lower() for k in ["unusual traffic", "automated queries", "captcha", "verify you're not a robot", "/sorry/"]):
-                print(f"[MAPS] CAPTCHA or blocking detected")
                 return {"status":"blocked", "message":"Detected CAPTCHA or Google blocking", "diagnostic": diagnostic}
 
         # Run diagnostic to inspect actual page structure and adapt selectors
-        print(f"[MAPS] Running diagnostic to inspect page structure...")
         page_diagnostic = await self.page.evaluate("""
             () => {
                 const selectors = [
@@ -486,10 +455,6 @@ class BrowserAgent:
             }
         """)
         
-        print(f"[MAPS] Diagnostic results:")
-        print(f"  - Container counts: {page_diagnostic.get('counts', {})}")
-        print(f"  - Best container selector: {page_diagnostic.get('bestContainerSelector', 'none')}")
-        print(f"  - Sample found: {page_diagnostic.get('sample') is not None}")
         
         # Update diagnostic with page inspection results
         diagnostic.update(page_diagnostic)
@@ -497,8 +462,6 @@ class BrowserAgent:
         # Extract results from containers using improved extraction logic
         # Use the best container selector found in diagnostic
         best_selector = page_diagnostic.get('bestContainerSelector') or '.Nv2PK'
-        print(f"[MAPS] Using container selector: {best_selector}")
-        print(f"[MAPS] Extracting data from containers...")
         
         # Build extraction JS with dynamic selector (using raw string since we pass selector as parameter)
         extraction_js = r"""
@@ -621,7 +584,6 @@ class BrowserAgent:
         # page.evaluate() only takes one argument after the JS code, so pass both as a dict
         extraction = await self.page.evaluate(extraction_js, {"limit": limit, "containerSelector": best_selector})
 
-        print(f"[MAPS] Extracted {len(extraction)} results")
         return {"status": "success", "data": extraction, "diagnostic": diagnostic}
 
     async def click(self, selector: str) -> dict:
@@ -635,28 +597,23 @@ class BrowserAgent:
             try:
                 search_input = await self.page.query_selector("input#searchboxinput, input[aria-label*='Search']")
                 if search_input:
-                    print("[DEBUG] Pressing Enter on Google Maps search input...")
                     current_url = self.page.url
                     await self.page.keyboard.press("Enter")
                     
                     # Wait for URL to change (indicates search executed)
-                    print("[DEBUG] Waiting for URL to change after search...")
                     try:
                         await self.page.wait_for_url(lambda url: url != current_url, timeout=10000)
-                        print(f"[DEBUG] URL changed to: {self.page.url}")
                     except:
-                        print("[DEBUG] URL didn't change, but search might still have executed")
+                        pass
                     
                     # Wait longer for Google Maps to load results
-                    print("[DEBUG] Waiting for results to load...")
                     await self.page.wait_for_timeout(5000)  # Increased wait time for Google Maps
                     
                     # Check if results appeared
                     try:
                         await self.page.wait_for_selector(".Nv2PK, [role='article'], [data-result-index]", state="attached", timeout=5000)
-                        print("[DEBUG] Results detected on page")
                     except:
-                        print("[DEBUG] Results might not be visible yet, but continuing...")
+                        pass
                     
                     return {
                         "status": "success",
@@ -666,8 +623,8 @@ class BrowserAgent:
                         "note": "Google Maps search executed, results may take time to load"
                     }
             except Exception as e:
-                print(f"[DEBUG] Failed to press Enter on Google Maps search: {e}")
                 # Fall through to normal click handling
+                pass
         
         # List of selectors to try
         selectors_to_try = [selector]
@@ -792,21 +749,17 @@ class BrowserAgent:
                     
                     # For Google Maps, automatically press Enter after typing
                     if self.current_site == "google_maps":
-                        print(f"[DEBUG] Auto-pressing Enter after typing '{text}' on Google Maps...")
                         await asyncio.sleep(0.5)  # Small delay to ensure typing is complete
                         await self.page.keyboard.press("Enter")
-                        print(f"[DEBUG] Enter pressed, waiting for search to execute...")
                         
                         # Wait for URL to change (search executed)
                         current_url = self.page.url
                         try:
                             await self.page.wait_for_url(lambda url: url != current_url, timeout=8000)
-                            print(f"[DEBUG] URL changed to: {self.page.url}")
                         except:
-                            print(f"[DEBUG] URL didn't change within timeout, but search may have executed")
+                            pass
                         
                         # Wait for results to load - Google Maps needs much more time
-                        print(f"[DEBUG] Waiting for results to render (this can take 10-15 seconds for Google Maps)...")
                         
                         # Poll for results over time instead of just waiting
                         max_wait = 15  # seconds
@@ -832,10 +785,8 @@ class BrowserAgent:
                                 }
                             """)
                             
-                            print(f"[DEBUG] Poll {i+poll_interval}s: Found {result_count} elements")
                             
                             if result_count >= 3:  # If we found at least 3 results, stop polling
-                                print(f"[DEBUG] Results loaded! Found {result_count} elements")
                                 break
                         
                         # Get page structure info for debugging
@@ -852,7 +803,6 @@ class BrowserAgent:
                                 };
                             }
                         """)
-                        print(f"[DEBUG] Page structure: {page_info}")
                         
                         return {
                             "status": "success", 
@@ -901,7 +851,6 @@ class BrowserAgent:
         
         # For Google Maps, use smarter detection - wait for h3 elements as indicators
         if self.current_site == "google_maps":
-            print(f"[DEBUG] Waiting for Google Maps element with selector: {selector}")
             
             # First, wait a bit for page to settle after search
             await asyncio.sleep(2)
@@ -909,15 +858,12 @@ class BrowserAgent:
             # Check if results are already present by looking for h3 elements (result names)
             try:
                 h3_count = await self.page.evaluate("() => document.querySelectorAll('h3').length")
-                print(f"[DEBUG] Found {h3_count} h3 elements on page")
                 if h3_count >= 3:  # If we have at least 3 h3s, likely results are there
-                    print(f"[DEBUG] Results appear to be loaded (found {h3_count} h3 elements)")
                     # Also check if we can find rating elements
                     rating_count = await self.page.evaluate("() => document.querySelectorAll('[aria-label*=\"star\"]').length")
-                    print(f"[DEBUG] Found {rating_count} rating elements")
                     return {"status": "success", "selector": "h3 (indicator)", "original_selector": selector, "note": f"Results detected via h3 count ({h3_count} found)"}
             except Exception as e:
-                print(f"[DEBUG] Error checking h3 count: {e}")
+                pass
             
             # If it's a name/rating/location selector or container selector, wait for containers
             container_selectors = [
@@ -937,7 +883,6 @@ class BrowserAgent:
                     # Use a reasonable timeout per selector
                     await self.page.wait_for_selector(container_sel, state="visible", timeout=max(3000, timeout // len(container_selectors)))
                     count = await self.page.evaluate(f"() => document.querySelectorAll('{container_sel}').length")
-                    print(f"[DEBUG] Found {count} elements with selector: {container_sel}")
                     if count > 0:
                         container_found = True
                         found_selector = container_sel
@@ -945,7 +890,6 @@ class BrowserAgent:
                         await asyncio.sleep(1)
                         break
                 except Exception as e:
-                    print(f"[DEBUG] Selector {container_sel} failed: {e}")
                     continue
             
             if container_found:
@@ -953,11 +897,9 @@ class BrowserAgent:
                 if selector not in container_selectors and selector != "h3":
                     try:
                         await self.page.wait_for_selector(selector, state="visible", timeout=3000)
-                        print(f"[DEBUG] Found specific element: {selector}")
                         return {"status": "success", "selector": selector}
                     except:
                         # Even if specific element not found, containers exist, so continue
-                        print(f"[DEBUG] Specific element {selector} not found, but containers exist - continuing")
                         return {"status": "success", "selector": found_selector or "h3 (fallback)", "original_selector": selector, "note": "Containers found but specific element may not be visible yet"}
                 else:
                     return {"status": "success", "selector": found_selector or selector}
@@ -1240,8 +1182,6 @@ For selectors, use the most reliable one: id > name > type+placeholder > classNa
         except Exception as e:
             import traceback
             error_trace = traceback.format_exc()
-            print(f"Form analysis error: {str(e)}")
-            print(f"Traceback: {error_trace}")
             return {
                 "status": "error",
                 "error": str(e),
@@ -1467,7 +1407,6 @@ For selectors, use the most reliable one: id > name > type+placeholder > classNa
             
             return result
         except Exception as e:
-            print(f"Error detecting form result: {e}")
             return {}
 
     async def extract(self, schema: dict, limit: int = None) -> dict:
@@ -1644,7 +1583,6 @@ For selectors, use the most reliable one: id > name > type+placeholder > classNa
             }
         """)
         
-        print(f"Page diagnostic: {diagnostic}")
         
         try:
             # Use a smarter extraction strategy - extract from product containers
@@ -2391,8 +2329,6 @@ For selectors, use the most reliable one: id > name > type+placeholder > classNa
         except Exception as e:
             import traceback
             error_trace = traceback.format_exc()
-            print(f"Extraction error: {str(e)}")
-            print(f"Traceback: {error_trace}")
             return {
                 "status": "error",
                 "error": str(e),

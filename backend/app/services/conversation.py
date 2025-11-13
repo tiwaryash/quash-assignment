@@ -1,7 +1,7 @@
 """Conversation layer for handling clarifications and multi-turn conversations."""
 
 from typing import Optional, Dict, Any
-from app.services.intent_classifier import classify_intent
+from app.services.intent_classifier import classify_intent, classify_intent_llm
 
 class ConversationManager:
     """Manages conversation state and clarification questions."""
@@ -12,12 +12,20 @@ class ConversationManager:
         self.conversation_history: Dict[str, list] = {}  # Track conversation turns per session
         self.user_preferences: Dict[str, Dict] = {}  # Remember user preferences across tasks
     
-    def needs_clarification(self, instruction: str, session_id: str = "default") -> Optional[Dict]:
+    async def needs_clarification(self, instruction: str, session_id: str = "default") -> Optional[Dict]:
         """
         Check if the instruction needs clarification.
         Returns a clarification question dict if needed, None otherwise.
+        Uses LLM-based intent classification for better accuracy.
         """
-        intent_info = classify_intent(instruction)
+        # Use LLM-based classification for better accuracy
+        try:
+            intent_info = await classify_intent_llm(instruction)
+        except Exception as e:
+            # Fallback to rule-based if LLM fails
+            from app.core.logger import logger
+            logger.warning(f"LLM classification failed, using rule-based: {e}")
+            intent_info = classify_intent(instruction)
         
         # Use the needs_clarification flag from intent classifier
         if intent_info.get("needs_clarification"):
@@ -295,7 +303,7 @@ class ConversationManager:
             return None
         return self.user_preferences[session_id].get(preference_type)
     
-    def apply_learned_preferences(self, instruction: str, session_id: str) -> str:
+    async def apply_learned_preferences(self, instruction: str, session_id: str) -> str:
         """Apply learned preferences to make instruction more specific."""
         if session_id not in self.user_preferences:
             return instruction
@@ -307,7 +315,10 @@ class ConversationManager:
         preferred_site = prefs.get("preferred_site")
         if preferred_site:
             # Check if instruction is about e-commerce or local discovery
-            intent = classify_intent(instruction)
+            try:
+                intent = await classify_intent_llm(instruction)
+            except Exception:
+                intent = classify_intent(instruction)
             
             # Only apply if no site mentioned
             has_site = any(site in instruction_lower for site in [

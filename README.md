@@ -330,5 +330,5 @@ For detailed architecture documentation, see [TECHNICAL_WRITEUP.md](TECHNICAL_WR
 
 ## License
 
-MIT
+Made my Yash Tiwary
 

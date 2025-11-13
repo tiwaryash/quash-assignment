@@ -86,10 +86,15 @@ export default function ChatWindow() {
         // For action_status messages, replace existing card for the same step instead of adding new one
         if (data.type === 'action_status' && data.step !== undefined) {
           setMessages(prev => {
-            // Find and remove existing card for this step
-            const filtered = prev.filter(msg => 
-              !(msg.type === 'action_status' && msg.step === data.step)
-            );
+            // Find and remove existing card for this step and action
+            // Use step + action to uniquely identify, so different plans don't interfere
+            const filtered = prev.filter(msg => {
+              // Remove if it's the same action_status with same step and action
+              if (msg.type === 'action_status' && msg.step === data.step && msg.action === data.action) {
+                return false; // Remove this message
+              }
+              return true; // Keep this message
+            });
             // Add the new/updated card
             return [...filtered, {
               ...data,
@@ -243,9 +248,11 @@ export default function ChatWindow() {
           }
           
           if (msg.type === 'action_status') {
+            // Use a stable key based on step and action so React updates instead of remounting
+            const actionKey = `action-${msg.step}-${msg.action || 'unknown'}`;
             return (
               <ActionCard
-                key={idx}
+                key={actionKey}
                 action={msg.action || 'unknown'}
                 status={msg.status || 'pending'}
                 step={msg.step}
