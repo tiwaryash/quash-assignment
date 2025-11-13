@@ -150,17 +150,17 @@ export default function ChatWindow() {
             <h3 className="text-xl font-semibold text-slate-300 mb-2">Welcome to Quash Browser Agent</h3>
             <p className="text-slate-400 mb-6">Start by sending a natural language instruction</p>
             <p className="text-xs text-slate-500 mb-4">Make sure the backend server is running on port 8000</p>
-            <div className="flex flex-wrap gap-2 justify-center">
+            <div className="flex flex-wrap gap-2 justify-center max-w-2xl mx-auto">
               {[
-                "Navigate to google.com",
-                "Search for laptops on Flipkart",
-                "Find top 3 pizza places",
-                "Extract page title"
+                "Find MacBook Air under ₹1,00,000",
+                "Find top pizza places in Indiranagar",
+                "Compare laptops on Flipkart and Amazon",
+                "Search for best restaurants near me"
               ].map((example, idx) => (
                 <button
                   key={idx}
                   onClick={() => setInput(example)}
-                  className="px-4 py-2 bg-slate-800/50 hover:bg-slate-700/50 text-slate-300 rounded-lg text-sm transition-colors border border-slate-700/50"
+                  className="px-4 py-2 bg-slate-800/50 hover:bg-slate-700/50 text-slate-300 rounded-lg text-sm transition-colors border border-slate-700/50 hover:border-slate-600/50"
                 >
                   {example}
                 </button>
@@ -366,7 +366,7 @@ export default function ChatWindow() {
             />
           </div>
           <button
-            onClick={sendMessage}
+            onClick={() => sendMessage()}
             disabled={!connected || !input.trim() || isLoading}
             className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-medium rounded-xl shadow-lg hover:shadow-blue-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-lg flex items-center gap-2 min-w-[100px] justify-center"
           >

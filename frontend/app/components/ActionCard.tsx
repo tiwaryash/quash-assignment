@@ -150,37 +150,79 @@ export default function ActionCard({ action, status, step, total, details, resul
           <div className="bg-slate-900/50 rounded-lg p-3 max-h-96 overflow-y-auto">
             <div className="space-y-3">
               {result.data.map((item: any, idx: number) => (
-                <div key={idx} className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50">
-                  <div className="space-y-1.5">
-                    {item.name && (
-                      <div className="font-semibold text-slate-200 text-sm">{item.name}</div>
-                    )}
-                    {!item.name && item.link && (
-                      <div className="font-semibold text-slate-400 text-sm italic">Product {idx + 1}</div>
-                    )}
-                    <div className="flex items-center gap-4 text-xs">
-                      {item.price && (
-                        <div className="text-emerald-400 font-medium">
-                          ₹{typeof item.price === 'number' ? item.price.toLocaleString('en-IN') : item.price}
-                        </div>
-                      )}
+                <div key={idx} className="bg-slate-800/50 p-3 rounded-lg border border-slate-700/50 hover:border-slate-600/50 transition-colors">
+                  <div className="space-y-2">
+                    {/* Item Number and Name */}
+                    <div className="flex items-start gap-2">
+                      <div className="text-xs font-semibold text-slate-500 min-w-[24px]">#{idx + 1}</div>
+                      <div className="flex-1">
+                        {item.name && (
+                          <div className="font-semibold text-slate-200 text-sm leading-tight">{item.name}</div>
+                        )}
+                        {item.title && !item.name && (
+                          <div className="font-semibold text-slate-200 text-sm leading-tight">{item.title}</div>
+                        )}
+                        {!item.name && !item.title && (
+                          <div className="font-semibold text-slate-400 text-sm italic">Item {idx + 1}</div>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Metrics Row */}
+                    <div className="flex items-center gap-2 text-xs flex-wrap">
                       {item.rating && (
-                        <div className="flex items-center gap-1 text-amber-400">
+                        <div className="flex items-center gap-1 text-amber-400 bg-amber-500/10 px-2 py-1 rounded">
                           <span>⭐</span>
                           <span>{typeof item.rating === 'number' ? item.rating.toFixed(1) : item.rating}</span>
+                          {item.reviews && (
+                            <span className="text-slate-400 ml-1">
+                              ({typeof item.reviews === 'number' ? item.reviews.toLocaleString('en-IN') : item.reviews})
+                            </span>
+                          )}
+                        </div>
+                      )}
+                      {item.price && (
+                        <div className="flex items-center gap-1 text-emerald-400 font-medium bg-emerald-500/10 px-2 py-1 rounded">
+                          <span>💰</span>
+                          <span>{typeof item.price === 'string' ? item.price : `₹${typeof item.price === 'number' ? item.price.toLocaleString('en-IN') : item.price}`}</span>
+                        </div>
+                      )}
+                      {item.category && (
+                        <div className="flex items-center gap-1 text-purple-400 bg-purple-500/10 px-2 py-1 rounded">
+                          <span>🏷️</span>
+                          <span>{item.category}</span>
                         </div>
                       )}
                     </div>
+                    
+                    {/* Location (for local discovery results) */}
+                    {(item.location || item.address) && (
+                      <div className="flex items-center gap-1 text-xs text-slate-400 bg-slate-700/30 px-2 py-1 rounded">
+                        <span>📍</span>
+                        <span>{item.location || item.address}</span>
+                      </div>
+                    )}
+                    
+                    {/* Additional metadata */}
+                    {item.delivery_available && (
+                      <div className="flex items-center gap-1 text-xs text-green-400 bg-green-500/10 px-2 py-1 rounded w-fit">
+                        <span>🛵</span>
+                        <span>Delivery Available</span>
+                      </div>
+                    )}
+                    
+                    {/* Link */}
                     {(item.link || item.url) && (
-                      <div className="mt-2">
+                      <div className="mt-2 pt-2 border-t border-slate-700/30">
                         <a 
                           href={item.link || item.url} 
                           target="_blank" 
                           rel="noopener noreferrer"
-                          className="text-xs text-blue-400 hover:text-blue-300 underline break-all"
+                          className="text-xs text-blue-400 hover:text-blue-300 underline break-all inline-flex items-center gap-1"
                           title={item.link || item.url}
                         >
-                          {item.link || item.url}
+                          <span>🔗</span>
+                          <span className="truncate max-w-[400px]">{item.link || item.url}</span>
                         </a>
                       </div>
                     )}
