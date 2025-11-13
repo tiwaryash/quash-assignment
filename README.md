@@ -4,11 +4,22 @@ A conversational browser automation agent that controls a real browser through n
 
 ## Features
 
+### Core Capabilities
 - 🤖 **AI-Powered Planning**: Converts natural language instructions into browser action plans
-- 🌐 **Real Browser Control**: Uses Playwright for reliable browser automation
+- 🌐 **Real Browser Control**: Uses Playwright for reliable browser automation  
 - 💬 **Live Streaming UI**: WebSocket-based chat interface with real-time action updates
 - 📊 **Data Extraction**: Extract structured data from web pages
-- 🛡️ **Error Handling**: Graceful error handling with user-friendly messages
+- 🔄 **Multi-Site Comparison**: Compare products across Flipkart, Amazon, and other e-commerce sites
+- 📝 **Form Automation**: Intelligent form filling with LLM-powered field detection
+
+### Advanced Features
+- 🔌 **LLM Provider Abstraction**: Support for OpenAI, Anthropic Claude, and local LLMs (Ollama)
+- 📋 **Structured Logging**: JSON logging with automatic sensitive data redaction
+- ⚡ **Retry Logic**: Exponential backoff for network failures and transient errors
+- 🛡️ **Edge Case Handling**: Robust handling of element staleness, network timeouts, and blocking
+- 💾 **Conversation Memory**: Remembers user preferences across sessions
+- 🔍 **Intent Classification**: Automatic detection of task type and clarification requests
+- 🐳 **Docker Support**: Fully containerized development environment
 
 ## Architecture
 
@@ -59,7 +70,32 @@ quash-assignment/
 
 ## Setup
 
-### Prerequisites
+### Option 1: Docker (Recommended)
+
+1. **Prerequisites:**
+   - Docker and Docker Compose installed
+   - OpenAI API key (get from https://platform.openai.com/account/api-keys)
+
+2. **Setup:**
+```bash
+# Clone the repository
+git clone <repository-url>
+cd quash_assignment
+
+# Set your OpenAI API key
+export OPENAI_API_KEY=sk-your-actual-key-here
+
+# Start all services
+docker-compose up --build
+```
+
+3. **Access:**
+   - Frontend: http://localhost:3000
+   - Backend API: http://localhost:8000
+
+### Option 2: Local Development
+
+#### Prerequisites
 
 - Python 3.9+
 - Node.js 18+
@@ -145,10 +181,23 @@ The agent will:
 
 ## Example Instructions
 
-- `Navigate to https://example.com`
-- `Go to google.com and search for "python tutorial"`
-- `Find laptops under 60000 on Flipkart`
-- `Extract the title and description from the current page`
+### Product Search & Comparison
+- `Find MacBook Air under ₹1,00,000 on Flipkart`
+- `Compare laptops under ₹60,000 on Flipkart and Amazon`
+- `Search for wireless headphones with 4+ star ratings`
+
+### Local Discovery
+- `Find top 3 pizza places in Indiranagar with ratings`
+- `Show best restaurants near HSR Layout on Google Maps`
+- `Find coffee shops in Koramangala with delivery`
+
+### Form Filling
+- `Fill out the signup form on example.com/register`
+- `Register with a temporary email on this page`
+
+### General Browsing
+- `Navigate to example.com and extract the page title`
+- `Go to python.org and get the latest release version`
 
 ## Development
 
@@ -166,10 +215,110 @@ The agent will:
 
 ## Tech Stack
 
-- **Backend**: FastAPI, Python, Playwright, OpenAI
-- **Frontend**: Next.js, TypeScript, Tailwind CSS
-- **Communication**: WebSockets
-- **AI**: OpenAI GPT-4o-mini
+### Backend
+- **Framework**: FastAPI with async/await support
+- **Browser Automation**: Playwright (Chromium)
+- **AI/LLM**: OpenAI GPT-4o-mini (with support for Claude & local models)
+- **Communication**: WebSockets for real-time streaming
+- **Testing**: Pytest with async support
+
+### Frontend
+- **Framework**: Next.js 14 with App Router
+- **Language**: TypeScript
+- **Styling**: Tailwind CSS with custom animations
+- **Icons**: Lucide React
+- **Real-time**: WebSocket client
+
+### DevOps
+- **Containerization**: Docker & Docker Compose
+- **Logging**: Structured JSON logging with redaction
+- **Error Handling**: Retry logic with exponential backoff
+
+## Testing
+
+Run the test suite:
+
+```bash
+cd backend
+pytest tests/ -v
+```
+
+Run specific test:
+```bash
+pytest tests/test_navigation.py::test_navigate_to_valid_url -v
+```
+
+## Advanced Configuration
+
+### Using Alternative LLM Providers
+
+#### Anthropic Claude
+```bash
+# In backend/.env
+LLM_PROVIDER=anthropic
+ANTHROPIC_API_KEY=your-anthropic-key
+ANTHROPIC_MODEL=claude-3-sonnet-20240229
+```
+
+#### Local LLM (Ollama)
+```bash
+# In backend/.env
+LLM_PROVIDER=local
+LOCAL_LLM_URL=http://localhost:11434
+LOCAL_LLM_MODEL=llama2
+```
+
+### Browser Configuration
+```bash
+# In backend/.env
+HEADLESS=true  # Set to false to see browser
+BROWSER_TIMEOUT=30000  # Navigation timeout in ms
+```
+
+### Logging Configuration
+```bash
+# In backend/.env
+LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR
+LOG_FILE=logs/app.log
+```
+
+## Architecture Highlights
+
+### Clean Separation of Concerns
+- **Conversation Layer**: Handles clarifications, context, and user preferences
+- **Planning Layer**: Converts natural language to action plans
+- **Execution Layer**: Orchestrates browser actions and data extraction
+- **Browser Layer**: Low-level browser control with fallback strategies
+- **AI Layer**: Abstracted LLM providers for flexibility
+
+### Key Design Patterns
+- **Provider Pattern**: Pluggable LLM providers (OpenAI, Anthropic, Local)
+- **Strategy Pattern**: Site-specific selector strategies
+- **Retry Pattern**: Exponential backoff for transient failures
+- **Circuit Breaker**: Prevents cascading failures
+- **Observer Pattern**: WebSocket streaming for real-time updates
+
+### Error Handling
+- Automatic retry with exponential backoff for network failures
+- Graceful degradation when selectors don't match
+- CAPTCHA and blocking detection with alternative suggestions
+- Stale element recovery
+- Network timeout handling
+
+### Extensibility
+- Easy to add new sites with custom selectors
+- Pluggable LLM providers
+- Modular workflow capabilities (search, compare, form-fill)
+- Session-based preference learning
+
+## Bonus Features Implemented
+
+✅ WebSocket streaming with granular action events
+✅ Memory of user preferences across tasks
+✅ Multi-site comparison flows
+✅ Provider abstraction for LLMs and pluggable planners
+✅ Dockerized dev stack
+✅ Deterministic e2e tests for navigation workflow
 
 ## License
 
