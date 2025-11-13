@@ -6,6 +6,8 @@ import asyncio
 import json
 import random
 import string
+import urllib.parse
+from typing import List, Dict
 
 class BrowserAgent:
     def __init__(self):
@@ -27,8 +29,8 @@ class BrowserAgent:
             self.context = await self.browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
                 user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                locale='en-US',
-                timezone_id='America/New_York',
+                locale='en-IN',  # Indian locale for better local results
+                timezone_id='Asia/Kolkata',  # Indian timezone
                 extra_http_headers={
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                     'Accept-Language': 'en-US,en;q=0.9',
@@ -280,6 +282,339 @@ class BrowserAgent:
         except:
             return False
 
+    async def search_google_maps(self, query: str, limit: int = 5, lat: float = 12.9250, lng: float = 77.6400) -> Dict:
+        """
+        Search Google Maps for `query` near given lat/lng (defaults to HSR Layout, Bangalore) and extract results.
+        This is a robust, battle-tested function that handles Maps' async rendering and common issues.
+        
+        Returns: {"status":"success","data":[{name, rating, address, url}], "diagnostic": {...}}
+        """
+        if not self.page:
+            await self.start()
+
+        print(f"[MAPS] Searching for '{query}' near ({lat}, {lng})")
+
+        # Ensure context has India locale/timezone and geolocation (helps results & reduces surprises)
+        try:
+            if self.context:
+                await self.context.set_default_navigation_timeout(45000)
+                await self.context.grant_permissions(["geolocation"])
+                await self.context.set_geolocation({"latitude": lat, "longitude": lng, "accuracy": 100})
+                print(f"[MAPS] Set geolocation to ({lat}, {lng})")
+            else:
+                print(f"[MAPS] Context not available, skipping geolocation setup")
+        except Exception as e:
+            # Some contexts may not support changing geolocation after creation; ignore if not supported
+            print(f"[MAPS] Could not set geolocation: {e}")
+            pass
+
+        # Build URL containing search term (helps maps initial view)
+        encoded = urllib.parse.quote_plus(query)
+        maps_url = f"https://www.google.com/maps/search/{encoded}/@{lat},{lng},13z"
+        print(f"[MAPS] Navigating to: {maps_url}")
+        
+        try:
+            await self.page.goto(maps_url, wait_until="load", timeout=30000)
+        except Exception as e:
+            print(f"[MAPS] Navigation error (continuing anyway): {e}")
+
+        # Wait for search box to appear (more reliable than networkidle)
+        try:
+            await self.page.wait_for_selector("input#searchboxinput, input[aria-label*='Search']", timeout=15000)
+            print(f"[MAPS] Search input found")
+        except Exception as e:
+            # continue anyway — sometimes input isn't present but page is usable
+            print(f"[MAPS] Search input not found (continuing): {e}")
+            pass
+
+        # Try to set input value robustly via evaluate (dispatch events)
+        try:
+            set_input_js = """
+            (q) => {
+                const selectors = ['input#searchboxinput', "input[aria-label*='Search']", 'input[placeholder*="Search"]'];
+                for (const s of selectors) {
+                    const el = document.querySelector(s);
+                    if (el) {
+                        el.focus();
+                        el.value = q;
+                        // dispatch input + change events so Maps picks it up
+                        el.dispatchEvent(new Event('input', {bubbles:true}));
+                        el.dispatchEvent(new Event('change', {bubbles:true}));
+                        return true;
+                    }
+                }
+                // fallback: try to find a visible input
+                const inputs = Array.from(document.querySelectorAll('input')).filter(i => i.offsetParent !== null);
+                if (inputs.length) {
+                    const el = inputs[0];
+                    el.focus();
+                    el.value = q;
+                    el.dispatchEvent(new Event('input', {bubbles:true}));
+                    el.dispatchEvent(new Event('change', {bubbles:true}));
+                    return true;
+                }
+                return false;
+            }
+            """
+            input_set = await self.page.evaluate(set_input_js, query)
+            print(f"[MAPS] Input value set via JS: {input_set}")
+            
+            # Press Enter to submit search
+            await asyncio.sleep(0.25)
+            await self.page.keyboard.press("Enter")
+            print(f"[MAPS] Pressed Enter to submit search")
+        except Exception as e:
+            print(f"[MAPS] Failed to set search input via evaluate: {e}")
+            # As fallback, try page.fill then Enter
+            try:
+                await self.page.fill("input#searchboxinput", query, timeout=3000)
+                await self.page.keyboard.press("Enter")
+                print(f"[MAPS] Used fallback fill method")
+            except Exception as e2:
+                print(f"[MAPS] Fallback fill also failed: {e2}")
+                pass
+
+        # Poll for results for up to 20 seconds
+        total_wait = 20
+        poll_interval = 1.5
+        elapsed = 0.0
+        found = False
+        diagnostic = {}
+        
+        print(f"[MAPS] Polling for results (up to {total_wait}s)...")
+        while elapsed < total_wait:
+            # check common result containers counts
+            counts = await self.page.evaluate("""
+                () => {
+                    return {
+                        roleArticle: document.querySelectorAll('div[role="article"]').length,
+                        dataResultIndex: document.querySelectorAll('[data-result-index]').length,
+                        h3s: document.querySelectorAll('h3').length,
+                        paneExists: !!document.querySelector('#pane'),
+                        paneChildren: document.querySelector('#pane') ? document.querySelector('#pane').children.length : 0,
+                        bodyTextLen: document.body.innerText.length
+                    };
+                }
+            """)
+            diagnostic = counts
+            
+            print(f"[MAPS] Poll {elapsed:.1f}s: articles={counts.get('roleArticle',0)}, h3s={counts.get('h3s',0)}, pane={counts.get('paneChildren',0)}")
+            
+            if counts.get("roleArticle", 0) >= 1 or counts.get("dataResultIndex", 0) >= 1 or counts.get("h3s", 0) >= 3 or counts.get("paneChildren", 0) > 0:
+                found = True
+                print(f"[MAPS] Results found!")
+                break
+            await asyncio.sleep(poll_interval)
+            elapsed += poll_interval
+
+        # If not found, capture page text to diagnose (maybe blocked)
+        if not found:
+            print(f"[MAPS] No results found after {total_wait}s, checking for blocking...")
+            page_text = await self.page.evaluate("() => document.body.innerText.slice(0,2000)")
+            diagnostic["pageTextPreview"] = page_text[:2000]
+            
+            # detect captcha keywords
+            if any(k in page_text.lower() for k in ["unusual traffic", "automated queries", "captcha", "verify you're not a robot", "/sorry/"]):
+                print(f"[MAPS] CAPTCHA or blocking detected")
+                return {"status":"blocked", "message":"Detected CAPTCHA or Google blocking", "diagnostic": diagnostic}
+
+        # Run diagnostic to inspect actual page structure and adapt selectors
+        print(f"[MAPS] Running diagnostic to inspect page structure...")
+        page_diagnostic = await self.page.evaluate("""
+            () => {
+                const selectors = [
+                    'div[role="article"]',
+                    '[data-result-index]',
+                    'h3',
+                    '.Nv2PK',
+                    '.qBF1Pd',
+                    '.MW4etd',
+                    '[aria-label*="star"]',
+                    '#pane',
+                    '[role="main"]'
+                ];
+                const counts = {};
+                selectors.forEach(s => {
+                    try { counts[s] = document.querySelectorAll(s).length; } catch(e){ counts[s]=0; }
+                });
+
+                // find first container candidate
+                const candidateSelectors = ['div[role="article"]', '[data-result-index]', '.Nv2PK', 'div:has(h3)'];
+                let sample = null;
+                for (const s of candidateSelectors) {
+                    try {
+                        const el = document.querySelector(s);
+                        if (el) { 
+                            sample = {
+                                selector: s, 
+                                outerHTML: el.outerHTML.slice(0,2000), 
+                                textPreview: el.innerText.slice(0,500)
+                            }; 
+                            break; 
+                        }
+                    } catch(e){}
+                }
+
+                // collect distinct class name frequency from first 200 divs
+                const classFreq = {};
+                Array.from(document.querySelectorAll('div')).slice(0,200).forEach(d => {
+                    const classes = (d.className || '').toString().split(/\\s+/).filter(Boolean);
+                    classes.forEach(c => classFreq[c] = (classFreq[c]||0) + 1);
+                });
+
+                // gather visible h3 texts
+                const h3s = Array.from(document.querySelectorAll('h3')).map(h => h.textContent?.trim()).filter(Boolean).slice(0,10);
+
+                return {
+                    counts, 
+                    sample, 
+                    topH3s: h3s, 
+                    topClasses: Object.entries(classFreq).sort((a,b)=>b[1]-a[1]).slice(0,30),
+                    bestContainerSelector: counts['.Nv2PK'] > 0 ? '.Nv2PK' : 
+                                          counts['div[role="article"]'] > 0 ? 'div[role="article"]' :
+                                          counts['[data-result-index]'] > 0 ? '[data-result-index]' : null
+                };
+            }
+        """)
+        
+        print(f"[MAPS] Diagnostic results:")
+        print(f"  - Container counts: {page_diagnostic.get('counts', {})}")
+        print(f"  - Best container selector: {page_diagnostic.get('bestContainerSelector', 'none')}")
+        print(f"  - Sample found: {page_diagnostic.get('sample') is not None}")
+        
+        # Update diagnostic with page inspection results
+        diagnostic.update(page_diagnostic)
+
+        # Extract results from containers using improved extraction logic
+        # Use the best container selector found in diagnostic
+        best_selector = page_diagnostic.get('bestContainerSelector') or '.Nv2PK'
+        print(f"[MAPS] Using container selector: {best_selector}")
+        print(f"[MAPS] Extracting data from containers...")
+        
+        # Build extraction JS with dynamic selector (using raw string since we pass selector as parameter)
+        extraction_js = r"""
+        (params) => {
+          const limit = params.limit || 10;
+          const containerSelector = params.containerSelector || '.Nv2PK';
+          const out = [];
+          let containers = [];
+          
+          // Try the primary selector first
+          try {
+            containers = Array.from(document.querySelectorAll(containerSelector)).filter(n => n && n.textContent && n.textContent.trim().length>10);
+            console.log('[MAPS-EXTRACT] Found', containers.length, 'containers with selector:', containerSelector);
+          } catch(e) {
+            console.log('[MAPS-EXTRACT] Error with primary selector:', e);
+          }
+          
+          // Fallback to other selectors if primary not found
+          if (containers.length === 0) {
+            const fallbackSelectors = ['.Nv2PK', 'div[role="article"]', '[data-result-index]', 'div:has(h3)'];
+            for (const sel of fallbackSelectors) {
+              try {
+                const found = Array.from(document.querySelectorAll(sel)).filter(c => c && c.textContent && c.textContent.trim().length>10);
+                if (found.length > 0) {
+                  containers.push(...found);
+                  console.log('[MAPS-EXTRACT] Using fallback selector:', sel, 'found', found.length);
+                  break;
+                }
+              } catch(e) { continue; }
+            }
+          }
+          
+          for (let i = 0; i < Math.min(limit, containers.length); i++) {
+            const c = containers[i];
+            // NAME
+            const nameEl = c.querySelector('.qBF1Pd') || c.querySelector('[role="heading"]') || c.querySelector('h3');
+            const name = nameEl ? nameEl.textContent.trim() : null;
+
+            // URL (maps place link)
+            let url = null;
+            const a = c.querySelector('a[href*="/maps/place"], a[href*="/maps/dir"], a[href*="maps.google"]');
+            if (a && a.href) url = a.href;
+            else if (name) url = 'https://www.google.com/maps/search/' + encodeURIComponent(name);
+
+            // RATING and REVIEWS
+            let rating = null, reviews = null;
+            // preference: aria-label on an element that contains rating+reviews
+            const ariaEl = c.querySelector('[aria-label*="stars"], [aria-label*="star"], [aria-label*="Reviews"], [aria-label*="review"]');
+            if (ariaEl && ariaEl.getAttribute) {
+              const aria = ariaEl.getAttribute('aria-label') || '';
+              const rMatch = aria.match(/(\d(?:\.\d)?)/);
+              const revMatch = aria.match(/\b(\d[\d,]*)\b(?=\s*Reviews|\))/i);
+              if (rMatch) rating = rMatch[1];
+              if (revMatch) reviews = revMatch[1].replace(/,/g,'');
+            }
+            // fallback: numeric .MW4etd inside card
+            if (!rating) {
+              const rEl = c.querySelector('.MW4etd');
+              if (rEl) rating = rEl.textContent.trim().match(/(\d(?:\.\d)?)/)?.[1] || null;
+            }
+            // Also try to find reviews count inside element .UY7F9 or similar
+            if (!reviews) {
+              const revEl = c.querySelector('.UY7F9, .QBUL8c ~ .UY7F9') || c.querySelector('[aria-hidden="true"]');
+              if (revEl && /\(\d/.test(revEl.textContent)) {
+                reviews = (revEl.textContent.match(/\d[\d,]*/) || [null])[0];
+                if (reviews) reviews = reviews.replace(/,/g,'');
+              }
+            }
+
+            // PRICE / CATEGORY / ADDRESS: there are multiple .W4Efsd blocks; get sensible lines
+            let category = null, price = null, address = null;
+            try {
+              const w = Array.from(c.querySelectorAll('.W4Efsd')).map(el => el.innerText && el.innerText.trim()).filter(Boolean);
+              // Example structure seen: ["4.7(687) · ₹200–400", "Pizza · HOUSE NO 557, GROUND FLOOR", "Open ⋅ Closes 10 pm"]
+              if (w.length >= 1) {
+                // try to find price token (₹) and category/address by heuristics
+                for (const line of w) {
+                  if (line.includes('₹')) {
+                    price = line.match(/₹\s*[\d,–\-\s]+/)?.[0] || price;
+                  }
+                  // category is often short word like "Pizza"
+                  const catMatch = line.match(/^[A-Za-z &amp;]+(?=\s*·|$)/);
+                  if (catMatch && !category) category = catMatch[0].trim();
+                }
+                // address: try second line after category if present
+                if (w.length >= 2) {
+                  // take the portion after the dot separator '·' if exists
+                  const possible = w[1].split('·').map(s => s.trim()).filter(Boolean);
+                  // prefer anything that looks like an address (contains digits or ALL CAPS words)
+                  for (const p of possible) {
+                    if (/\d/.test(p) || /[A-Z]{2,}/.test(p) || p.length>10) {
+                      address = p;
+                      break;
+                    }
+                  }
+                  if (!address) address = possible.join(' · ') || null;
+                } else {
+                  // fallback: try to parse address from full card text removing name and rating
+                  const txt = c.innerText.replace(name || '', '').replace(/[\r\n]+/g,'\n').split('\n').map(s=>s.trim()).filter(Boolean);
+                  if (txt.length >= 2) address = txt.slice(1,4).join(' | ');
+                }
+              }
+            } catch(e) {}
+
+            out.push({
+              name: name || null,
+              rating: rating ? (isNaN(Number(rating)) ? rating : Number(rating)) : null,
+              reviews: reviews ? (isNaN(Number(reviews)) ? reviews : Number(reviews)) : null,
+              price: price || null,
+              category: category || null,
+              address: address || null,
+              url: url || null
+            });
+          }
+          return out;
+        }
+        """
+        
+        # Call extraction with both limit and the dynamically determined selector
+        # page.evaluate() only takes one argument after the JS code, so pass both as a dict
+        extraction = await self.page.evaluate(extraction_js, {"limit": limit, "containerSelector": best_selector})
+
+        print(f"[MAPS] Extracted {len(extraction)} results")
+        return {"status": "success", "data": extraction, "diagnostic": diagnostic}
+
     async def click(self, selector: str) -> dict:
         """Click an element by selector with automatic fallback."""
         if not self.page:
@@ -291,13 +626,35 @@ class BrowserAgent:
             try:
                 search_input = await self.page.query_selector("input#searchboxinput, input[aria-label*='Search']")
                 if search_input:
+                    print("[DEBUG] Pressing Enter on Google Maps search input...")
+                    current_url = self.page.url
                     await self.page.keyboard.press("Enter")
-                    await self.page.wait_for_timeout(2000)  # Wait for search to execute
+                    
+                    # Wait for URL to change (indicates search executed)
+                    print("[DEBUG] Waiting for URL to change after search...")
+                    try:
+                        await self.page.wait_for_url(lambda url: url != current_url, timeout=10000)
+                        print(f"[DEBUG] URL changed to: {self.page.url}")
+                    except:
+                        print("[DEBUG] URL didn't change, but search might still have executed")
+                    
+                    # Wait longer for Google Maps to load results
+                    print("[DEBUG] Waiting for results to load...")
+                    await self.page.wait_for_timeout(5000)  # Increased wait time for Google Maps
+                    
+                    # Check if results appeared
+                    try:
+                        await self.page.wait_for_selector(".Nv2PK, [role='article'], [data-result-index]", state="attached", timeout=5000)
+                        print("[DEBUG] Results detected on page")
+                    except:
+                        print("[DEBUG] Results might not be visible yet, but continuing...")
+                    
                     return {
                         "status": "success",
                         "selector": "input#searchboxinput (pressed Enter)",
                         "original_selector": selector,
-                        "method": "keyboard_enter"
+                        "method": "keyboard_enter",
+                        "note": "Google Maps search executed, results may take time to load"
                     }
             except Exception as e:
                 print(f"[DEBUG] Failed to press Enter on Google Maps search: {e}")
@@ -423,6 +780,79 @@ class BrowserAgent:
                     await self.page.fill(sel, "")
                     # Type the text
                     await self.page.type(sel, text, delay=50)
+                    
+                    # For Google Maps, automatically press Enter after typing
+                    if self.current_site == "google_maps":
+                        print(f"[DEBUG] Auto-pressing Enter after typing '{text}' on Google Maps...")
+                        await asyncio.sleep(0.5)  # Small delay to ensure typing is complete
+                        await self.page.keyboard.press("Enter")
+                        print(f"[DEBUG] Enter pressed, waiting for search to execute...")
+                        
+                        # Wait for URL to change (search executed)
+                        current_url = self.page.url
+                        try:
+                            await self.page.wait_for_url(lambda url: url != current_url, timeout=8000)
+                            print(f"[DEBUG] URL changed to: {self.page.url}")
+                        except:
+                            print(f"[DEBUG] URL didn't change within timeout, but search may have executed")
+                        
+                        # Wait for results to load - Google Maps needs much more time
+                        print(f"[DEBUG] Waiting for results to render (this can take 10-15 seconds for Google Maps)...")
+                        
+                        # Poll for results over time instead of just waiting
+                        max_wait = 15  # seconds
+                        poll_interval = 2  # seconds
+                        result_count = 0
+                        
+                        for i in range(0, max_wait, poll_interval):
+                            await asyncio.sleep(poll_interval)
+                            result_count = await self.page.evaluate("""
+                                () => {
+                                    // Try multiple strategies to find results
+                                    let count = 0;
+                                    count = Math.max(count, document.querySelectorAll('div[role="article"]').length);
+                                    count = Math.max(count, document.querySelectorAll('[data-result-index]').length);
+                                    const h3s = document.querySelectorAll('h3');
+                                    count = Math.max(count, h3s.length);
+                                    
+                                    // Also try finding any divs with ratings
+                                    const withRatings = document.querySelectorAll('[aria-label*="star"]');
+                                    count = Math.max(count, withRatings.length);
+                                    
+                                    return count;
+                                }
+                            """)
+                            
+                            print(f"[DEBUG] Poll {i+poll_interval}s: Found {result_count} elements")
+                            
+                            if result_count >= 3:  # If we found at least 3 results, stop polling
+                                print(f"[DEBUG] Results loaded! Found {result_count} elements")
+                                break
+                        
+                        # Get page structure info for debugging
+                        page_info = await self.page.evaluate("""
+                            () => {
+                                const allDivs = document.querySelectorAll('div');
+                                const allH3s = document.querySelectorAll('h3');
+                                return {
+                                    totalDivs: allDivs.length,
+                                    totalH3s: allH3s.length,
+                                    sampleH3Text: Array.from(allH3s).slice(0, 5).map(h3 => h3.textContent?.trim()),
+                                    hasResults: document.querySelector('#pane') !== null,
+                                    hasSidebar: document.querySelector('[role="main"]') !== null
+                                };
+                            }
+                        """)
+                        print(f"[DEBUG] Page structure: {page_info}")
+                        
+                        return {
+                            "status": "success", 
+                            "selector": sel, 
+                            "text": text,
+                            "original_selector": selector if sel != selector else None,
+                            "note": "Search submitted automatically on Google Maps"
+                        }
+                    
                     return {
                         "status": "success", 
                         "selector": sel, 
