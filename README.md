@@ -5,21 +5,21 @@ A conversational browser automation agent that controls a real browser through n
 ## Features
 
 ### Core Capabilities
-- 🤖 **AI-Powered Planning**: Converts natural language instructions into browser action plans
-- 🌐 **Real Browser Control**: Uses Playwright for reliable browser automation  
-- 💬 **Live Streaming UI**: WebSocket-based chat interface with real-time action updates
-- 📊 **Data Extraction**: Extract structured data from web pages
-- 🔄 **Multi-Site Comparison**: Compare products across Flipkart, Amazon, and other e-commerce sites
-- 📝 **Form Automation**: Intelligent form filling with LLM-powered field detection
+- **AI-Powered Planning**: Converts natural language instructions into browser action plans
+- **Real Browser Control**: Uses Playwright for reliable browser automation  
+- **Live Streaming UI**: WebSocket-based chat interface with real-time action updates
+- **Data Extraction**: Extract structured data from web pages
+- **Multi-Site Comparison**: Compare products across Flipkart, Amazon, and other e-commerce sites
+- **Form Automation**: Intelligent form filling with LLM-powered field detection
 
 ### Advanced Features
-- 🔌 **LLM Provider Abstraction**: Support for OpenAI, Anthropic Claude, and local LLMs (Ollama)
-- 📋 **Structured Logging**: JSON logging with automatic sensitive data redaction
-- ⚡ **Retry Logic**: Exponential backoff for network failures and transient errors
-- 🛡️ **Edge Case Handling**: Robust handling of element staleness, network timeouts, and blocking
-- 💾 **Conversation Memory**: Remembers user preferences across sessions
-- 🔍 **Intent Classification**: Automatic detection of task type and clarification requests
-- 🐳 **Docker Support**: Fully containerized development environment
+- **LLM Provider Abstraction**: Support for OpenAI, Anthropic Claude, and local LLMs (Ollama)
+- **Structured Logging**: JSON logging with automatic sensitive data redaction
+- **Retry Logic**: Exponential backoff for network failures and transient errors
+- **Edge Case Handling**: Robust handling of element staleness, network timeouts, and blocking
+- **Conversation Memory**: Remembers user preferences across sessions
+- **Intent Classification**: Automatic detection of task type and clarification requests
+- **Docker Support**: Fully containerized development environment
 
 ## Architecture
 
@@ -282,6 +282,12 @@ LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR
 LOG_FILE=logs/app.log
 ```
 
+## Documentation
+
+- **[Technical Write-Up](TECHNICAL_WRITEUP.md)**: Comprehensive architecture documentation, design decisions, trade-offs, and future enhancements
+- **[Logging & Redaction](docs/LOGGING_AND_REDACTION.md)**: Detailed documentation of the structured logging system with sensitive data redaction
+- **[Sample Logs](docs/SAMPLE_LOGS_REDACTED.json)**: Example log entries demonstrating the logging system and redaction in action
+
 ## Architecture Highlights
 
 ### Clean Separation of Concerns
@@ -290,6 +296,8 @@ LOG_FILE=logs/app.log
 - **Execution Layer**: Orchestrates browser actions and data extraction
 - **Browser Layer**: Low-level browser control with fallback strategies
 - **AI Layer**: Abstracted LLM providers for flexibility
+
+For detailed architecture documentation, see [TECHNICAL_WRITEUP.md](TECHNICAL_WRITEUP.md).
 
 ### Key Design Patterns
 - **Provider Pattern**: Pluggable LLM providers (OpenAI, Anthropic, Local)
@@ -313,12 +321,12 @@ LOG_FILE=logs/app.log
 
 ## Bonus Features Implemented
 
-✅ WebSocket streaming with granular action events
-✅ Memory of user preferences across tasks
-✅ Multi-site comparison flows
-✅ Provider abstraction for LLMs and pluggable planners
-✅ Dockerized dev stack
-✅ Deterministic e2e tests for navigation workflow
+- WebSocket streaming with granular action events
+- Memory of user preferences across tasks
+- Multi-site comparison flows
+- Provider abstraction for LLMs and pluggable planners
+- Dockerized dev stack
+- Deterministic e2e tests for navigation workflow
 
 ## License
 
