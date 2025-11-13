@@ -2,27 +2,53 @@
 
 def filter_by_price(results: list, max_price: float = None, min_price: float = None) -> list:
     """Filter results by price range."""
+    import re
+    
     filtered = []
     for item in results:
         price = item.get('price')
         if price is None:
             continue
         
-        # Handle both string and numeric prices
-        if isinstance(price, str):
-            import re
-            price_str = re.sub(r'[^\d.]', '', str(price).replace(',', ''))
-            try:
-                price = float(price_str)
-            except:
-                continue
+        # Convert price to float, handling various formats
+        price_float = None
         
         if isinstance(price, (int, float)):
-            if max_price and price > max_price:
+            price_float = float(price)
+        elif isinstance(price, str):
+            # Remove all non-digit characters except decimal point
+            # Handle Indian format: ₹1,25,999 or 1,25,999 or ₹125999
+            price_clean = str(price).strip()
+            # Remove currency symbols and commas
+            price_clean = re.sub(r'[₹$€£,\s]', '', price_clean)
+            # Extract only digits and decimal point
+            price_str = re.sub(r'[^\d.]', '', price_clean)
+            
+            if price_str:
+                try:
+                    price_float = float(price_str)
+                except (ValueError, TypeError):
+                    # Try to extract first number found
+                    numbers = re.findall(r'\d+\.?\d*', price_clean)
+                    if numbers:
+                        try:
+                            price_float = float(numbers[0])
+                        except (ValueError, TypeError):
+                            continue
+                    else:
+                        continue
+            else:
                 continue
-            if min_price and price < min_price:
+        
+        # Apply filters
+        if price_float is not None:
+            if max_price and price_float > max_price:
                 continue
-            item['price'] = price
+            if min_price and price_float < min_price:
+                continue
+            
+            # Update item with parsed price
+            item['price'] = price_float
             filtered.append(item)
     
     return filtered

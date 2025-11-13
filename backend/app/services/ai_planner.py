@@ -85,11 +85,11 @@ async def create_action_plan(instruction: str) -> list[dict]:
         # Site information
         if intent_info["sites"]:
             sites_str = " and ".join([s.capitalize() for s in intent_info["sites"]])
-            context_parts.append(f"🛍️ Target sites: {sites_str}")
+            context_parts.append(f"Target sites: {sites_str}")
             
             # If multiple sites, explain comparison flow
             if len(intent_info["sites"]) > 1 or intent_info["comparison"]:
-                context_parts.append("⚖️ COMPARISON MODE: Search on EACH site separately")
+                context_parts.append("COMPARISON MODE: Search on EACH site separately")
                 context_parts.append("For each site:")
                 context_parts.append("  1. Navigate to the site")
                 context_parts.append("  2. Search for product")
@@ -99,12 +99,12 @@ async def create_action_plan(instruction: str) -> list[dict]:
         
         # Filter information
         if intent_info["filters"].get("price_max"):
-            context_parts.append(f"💰 Price filter: under ₹{intent_info['filters']['price_max']:,.0f}")
-            context_parts.append("⚠️ Extract MORE results (20+) first, then filter by price")
+            context_parts.append(f"Price filter: under ₹{intent_info['filters']['price_max']:,.0f}")
+            context_parts.append("Extract MORE results (20+) first, then filter by price")
         if intent_info["filters"].get("rating_min"):
-            context_parts.append(f"⭐ Rating filter: minimum {intent_info['filters']['rating_min']} stars")
+            context_parts.append(f"Rating filter: minimum {intent_info['filters']['rating_min']} stars")
         
-        context_parts.append(f"📊 Extract fields: {', '.join(intent_info['extraction_fields'])}")
+        context_parts.append(f"Extract fields: {', '.join(intent_info['extraction_fields'])}")
         context_parts.append("")
         context_parts.append("STRATEGY:")
         context_parts.append("1. Navigate to e-commerce site (e.g., https://www.flipkart.com)")
@@ -148,7 +148,7 @@ async def create_action_plan(instruction: str) -> list[dict]:
         
         if target_platform == "google_maps" or target_platform is None:
             # Google Maps is the most reliable for local discovery
-            context_parts.append("🗺️ PLATFORM: Google Maps (https://www.google.com/maps)")
+            context_parts.append("PLATFORM: Google Maps (https://www.google.com/maps)")
             context_parts.append("STRATEGY:")
             context_parts.append("1. Navigate to https://www.google.com/maps")
             context_parts.append("2. Type search query into search box - Enter will be pressed automatically")
@@ -165,8 +165,8 @@ async def create_action_plan(instruction: str) -> list[dict]:
             context_parts.append("- DO NOT create a 'click' action for search button - Enter is pressed automatically after typing")
             context_parts.append("- The 'type' action will automatically press Enter and wait for results on Google Maps")
             context_parts.append("- For 'wait_for', use container selectors NOT element selectors")
-            context_parts.append("  ✅ Good: [data-result-index], div[role='article'], .section-result")
-            context_parts.append("  ❌ Bad: .qBF1Pd, .MW4etd (these are element selectors inside containers)")
+            context_parts.append("  Good: [data-result-index], div[role='article'], .section-result")
+            context_parts.append("  Bad: .qBF1Pd, .MW4etd (these are element selectors inside containers)")
             context_parts.append("- Google Maps is a heavy SPA - navigation may timeout but page will still work")
             context_parts.append("- After type action, results will take 5-10 seconds to load, so wait_for timeout should be longer")
             context_parts.append("")
@@ -179,16 +179,16 @@ async def create_action_plan(instruction: str) -> list[dict]:
             context_parts.append('}')
             
         elif target_platform == "zomato":
-            context_parts.append("🍕 PLATFORM: Zomato (https://www.zomato.com)")
+            context_parts.append("PLATFORM: Zomato (https://www.zomato.com)")
             context_parts.append("STRATEGY: Navigate to Zomato → Search for places → Extract restaurant listings")
-            context_parts.append("⚠️ WARNING: Zomato may block automated access with HTTP2 errors")
+            context_parts.append("WARNING: Zomato may block automated access with HTTP2 errors")
             context_parts.append("If blocked, the system will offer Google Maps as an alternative")
             context_parts.append("Extraction: Look for restaurant cards, extract name, rating, location, cuisine")
             
         elif target_platform == "swiggy":
-            context_parts.append("🛵 PLATFORM: Swiggy (https://www.swiggy.com)")
+            context_parts.append("PLATFORM: Swiggy (https://www.swiggy.com)")
             context_parts.append("STRATEGY: Navigate to Swiggy → Search for places → Extract restaurant listings")
-            context_parts.append("⚠️ WARNING: Swiggy may block automated access with HTTP2 errors")
+            context_parts.append("WARNING: Swiggy may block automated access with HTTP2 errors")
             context_parts.append("If blocked, the system will offer Google Maps as an alternative")
             context_parts.append("Extraction: Look for restaurant cards, extract name, rating, delivery time")
         

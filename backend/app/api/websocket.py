@@ -4,6 +4,7 @@ from app.services.conversation import conversation_manager
 import json
 import uuid
 
+
 class ConnectionManager:
     def __init__(self):
         self.active_connections: dict[str, WebSocket] = {}

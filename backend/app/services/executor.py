@@ -655,34 +655,94 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                             result = await browser_agent.extract(schema, limit)
                     
                     # Log extraction result for debugging
-                    print(f"Extraction result: status={result.get('status')}, count={result.get('count')}, data_length={len(result.get('data', []))}")
+                    print(f"[EXECUTOR] Extraction result: status={result.get('status')}, count={result.get('count')}, data_length={len(result.get('data', []))}")
                     if result.get("data"):
-                        print(f"First item sample: {result.get('data')[0] if result.get('data') else 'None'}")
+                        print(f"[EXECUTOR] First item sample: {result.get('data')[0] if result.get('data') else 'None'}")
                     
                     # Post-process extracted data based on intent
                     if result.get("status") == "success" and result.get("data"):
-                        extracted_data = result["data"]
+                        # Make a copy to avoid reference issues
+                        extracted_data = list(result["data"]) if isinstance(result["data"], list) else result["data"]
+                        
+                        # Debug: Log intent info
+                        print(f"[EXECUTOR] Post-processing: intent={intent_info.get('intent')}, filters={intent_info.get('filters', {})}")
                         
                         # Apply filters based on intent
                         if intent_info.get("intent") == "product_search":
                             filters = intent_info.get("filters", {})
+                            print(f"[EXECUTOR] Product search detected, filters: {filters}")
                             
-                            # Price filtering
+                            # Price filtering - ensure prices are parsed first
                             if filters.get("price_max"):
+                                # Normalize all prices to floats before filtering
+                                for item in extracted_data:
+                                    if 'price' in item and item['price']:
+                                        price = item['price']
+                                        if isinstance(price, str):
+                                            # Parse string prices - handle Amazon format like "₹93,900.00"
+                                            price_clean = re.sub(r'[₹$€£,\s]', '', str(price).strip())
+                                            price_str = re.sub(r'[^\d.]', '', price_clean)
+                                            if price_str:
+                                                try:
+                                                    parsed_price = float(price_str)
+                                                    # Validate price is reasonable (not obviously wrong)
+                                                    # MacBook Air prices should be between ₹50,000 and ₹5,00,000
+                                                    # If price is > 10,000,000, it's likely a parsing error
+                                                    if parsed_price > 10000000:
+                                                        # Try to extract first reasonable number
+                                                        numbers = re.findall(r'\d+', price_clean)
+                                                        if numbers:
+                                                            # Take the first number that's reasonable
+                                                            for num_str in numbers:
+                                                                num = float(num_str)
+                                                                if 50000 <= num <= 5000000:
+                                                                    parsed_price = num
+                                                                    break
+                                                            else:
+                                                                # If no reasonable number found, use first one anyway
+                                                                parsed_price = float(numbers[0]) if numbers else None
+                                                        else:
+                                                            parsed_price = None
+                                                    item['price'] = parsed_price
+                                                except:
+                                                    # Try fallback extraction
+                                                    numbers = re.findall(r'\d+\.?\d*', price_clean)
+                                                    if numbers:
+                                                        try:
+                                                            # Try to find a reasonable price
+                                                            for num_str in numbers:
+                                                                num = float(num_str)
+                                                                if 50000 <= num <= 5000000:
+                                                                    item['price'] = num
+                                                                    break
+                                                            else:
+                                                                item['price'] = float(numbers[0])
+                                                        except:
+                                                            item['price'] = None
+                                                    else:
+                                                        item['price'] = None
+                                        
                                 filtered = filter_by_price(extracted_data, max_price=filters["price_max"])
                                 if filtered:
                                     top_results = get_top_results(filtered, limit or 3)
-                                    result["data"] = top_results
-                                    result["count"] = len(top_results)
+                                    # CRITICAL: Replace the data array completely, don't modify in place
+                                    result["data"] = top_results.copy() if hasattr(top_results, 'copy') else list(top_results)
+                                    result["count"] = len(result["data"])
                                     result["filtered"] = True
                                     result["max_price"] = filters["price_max"]
+                                    # Debug log
+                                    print(f"[EXECUTOR] Price filter applied: {len(extracted_data)} -> {len(filtered)} -> {len(result['data'])} items")
                                 else:
-                                    # Show closest matches
-                                    sorted_by_price = sorted(
-                                        [item for item in extracted_data if item.get('price')], 
-                                        key=lambda x: x.get('price') or float('inf')
-                                    )
-                                    if sorted_by_price:
+                                    # Show closest matches (only items with valid prices)
+                                    items_with_prices = [
+                                        item for item in extracted_data 
+                                        if item.get('price') and isinstance(item.get('price'), (int, float))
+                                    ]
+                                    if items_with_prices:
+                                        sorted_by_price = sorted(
+                                            items_with_prices, 
+                                            key=lambda x: float(x.get('price', 0))
+                                        )
                                         closest = sorted_by_price[:limit or 3]
                                         result["data"] = closest
                                         result["count"] = len(closest)
@@ -733,6 +793,13 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                         "status": "error",
                         "error": f"Unknown action type: {action_type}"
                     }
+                
+                # For extract actions, ensure data and count are consistent
+                if action_type == "extract" and result.get("status") == "success":
+                    if "data" in result and isinstance(result["data"], list):
+                        # Ensure count matches actual data length
+                        result["count"] = len(result["data"])
+                        print(f"[EXECUTOR] Sending extract result: count={result['count']}, data_length={len(result['data'])}")
                 
                 # Send result with full details
                 await websocket.send_json({

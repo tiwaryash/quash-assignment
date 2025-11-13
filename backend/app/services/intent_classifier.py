@@ -113,8 +113,8 @@ def classify_intent(instruction: str) -> dict:
     filters = {}
     import re
     
-    # Price filters
-    if 'under' in instruction_lower or 'below' in instruction_lower:
+    # Price filters - check for "under", "below", "less than", "upto", "max"
+    if any(keyword in instruction_lower for keyword in ['under', 'below', 'less than', 'upto', 'upto', 'max', 'maximum']):
         price_match = re.search(r'[₹$]?\s*([\d,]+)', instruction)
         if price_match:
             try:

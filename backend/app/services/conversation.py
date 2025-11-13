@@ -36,9 +36,9 @@ class ConversationManager:
                     "type": "clarification",
                     "question": f"Which platform would you like to use to find places in {location}?",
                     "options": [
-                        {"value": "google_maps", "label": "🗺️ Google Maps (most reliable, comprehensive results)"},
-                        {"value": "zomato", "label": "🍕 Zomato (restaurants, ratings, reviews)"},
-                        {"value": "swiggy", "label": "🛵 Swiggy (food delivery, restaurant listings)"}
+                        {"value": "google_maps", "label": "Google Maps (most reliable, comprehensive results)"},
+                        {"value": "zomato", "label": "Zomato (restaurants, ratings, reviews)"},
+                        {"value": "swiggy", "label": "Swiggy (food delivery, restaurant listings)"}
                     ],
                     "field": "site",
                     "context": "local_discovery"
@@ -52,7 +52,7 @@ class ConversationManager:
                         "type": "clarification",
                         "question": "Which e-commerce sites would you like to compare?",
                         "options": [
-                            {"value": "flipkart,amazon", "label": "🛒 Both Flipkart and Amazon"},
+                            {"value": "flipkart,amazon", "label": "Both Flipkart and Amazon"},
                             {"value": "flipkart", "label": "Flipkart only"},
                             {"value": "amazon", "label": "Amazon only"}
                         ],
@@ -64,9 +64,9 @@ class ConversationManager:
                         "type": "clarification",
                         "question": "Which e-commerce platform would you like to search on?",
                         "options": [
-                            {"value": "flipkart", "label": "🛍️ Flipkart (Indian marketplace)"},
-                            {"value": "amazon", "label": "📦 Amazon (global marketplace)"},
-                            {"value": "both", "label": "🔀 Search both and compare"}
+                            {"value": "flipkart", "label": "Flipkart (Indian marketplace)"},
+                            {"value": "amazon", "label": "Amazon (global marketplace)"},
+                            {"value": "both", "label": "Search both and compare"}
                         ],
                         "field": "site",
                         "context": "product_search"
@@ -97,10 +97,10 @@ class ConversationManager:
                     "type": "clarification",
                     "question": "Could you provide more details about what you'd like me to do?",
                     "options": [
-                        {"value": "search", "label": "🔍 Search for products or information"},
-                        {"value": "local", "label": "📍 Find local places (restaurants, services)"},
-                        {"value": "form", "label": "📝 Fill out a form or sign up"},
-                        {"value": "navigate", "label": "🌐 Navigate to a website and extract data"}
+                        {"value": "search", "label": "Search for products or information"},
+                        {"value": "local", "label": "Find local places (restaurants, services)"},
+                        {"value": "form", "label": "Fill out a form or sign up"},
+                        {"value": "navigate", "label": "Navigate to a website and extract data"}
                     ],
                     "field": "task_type",
                     "context": "general"

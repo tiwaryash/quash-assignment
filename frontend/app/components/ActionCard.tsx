@@ -169,7 +169,7 @@ export default function ActionCard({ action, status, step, total, details, resul
           <div className="flex items-center justify-between mb-2">
             <div className="flex items-center gap-1.5 text-xs font-black text-green-400">
               <CheckCircle2 className="w-4 h-4" />
-              Extracted {result.count || result.data.length} item{result.data.length !== 1 ? 's' : ''}
+              Extracted {result.count !== undefined ? result.count : result.data.length} item{(result.count !== undefined ? result.count : result.data.length) !== 1 ? 's' : ''}
             </div>
             {result.filtered && result.max_price && (
               <div className="text-xs text-yellow-500 bg-yellow-500/10 px-2 py-1 rounded-full font-bold border border-yellow-500/30">
@@ -213,12 +213,34 @@ export default function ActionCard({ action, status, step, total, details, resul
                           )}
                         </div>
                       )}
-                      {item.price && (
-                        <div className="flex items-center gap-1 text-green-400 font-black bg-green-500/10 px-2 py-1 rounded border border-green-500/30">
-                          <DollarSign className="w-3 h-3" />
-                          <span>{typeof item.price === 'string' ? item.price : `₹${typeof item.price === 'number' ? item.price.toLocaleString('en-IN') : item.price}`}</span>
-                        </div>
-                      )}
+                      {item.price && (() => {
+                        let formattedPrice = '';
+                        if (typeof item.price === 'string') {
+                          // Remove all currency symbols and whitespace, then extract numbers
+                          const cleanPrice = item.price.replace(/[₹$€£,\s]/g, '');
+                          const numbers = cleanPrice.match(/\d+\.?\d*/);
+                          if (numbers) {
+                            const numValue = parseFloat(numbers[0]);
+                            if (!isNaN(numValue)) {
+                              formattedPrice = `₹${numValue.toLocaleString('en-IN')}`;
+                            } else {
+                              formattedPrice = item.price.replace(/\$/g, '₹'); // Replace $ with ₹
+                            }
+                          } else {
+                            formattedPrice = item.price.replace(/\$/g, '₹'); // Replace $ with ₹
+                          }
+                        } else if (typeof item.price === 'number') {
+                          formattedPrice = `₹${item.price.toLocaleString('en-IN')}`;
+                        } else {
+                          formattedPrice = String(item.price).replace(/\$/g, '₹');
+                        }
+                        
+                        return (
+                          <div className="flex items-center gap-1 text-green-400 font-black bg-green-500/10 px-2 py-1 rounded border border-green-500/30">
+                            <span>{formattedPrice}</span>
+                          </div>
+                        );
+                      })()}
                       {item.category && (
                         <div className="flex items-center gap-1 text-purple-400 bg-purple-500/10 px-2 py-1 rounded font-bold border border-purple-500/30">
                           <Tag className="w-3 h-3" />

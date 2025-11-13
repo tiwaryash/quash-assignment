@@ -86,8 +86,6 @@ class BrowserAgent:
             # Detect if this is Google Maps - it needs special handling
             is_google_maps = "maps.google" in url.lower() or "google.com/maps" in url.lower()
             
-            print(f"[DEBUG] Navigating to: {url}, is_google_maps: {is_google_maps}")
-            
             # Try navigation with retry for network errors
             max_retries = 2
             last_error = None
@@ -1806,12 +1804,50 @@ For selectors, use the most reliable one: id > name > type+placeholder > classNa
                             try {
                                 const containers = document.querySelectorAll(sel);
                                 if (containers.length > 0) {
-                                    productContainers = Array.from(containers).slice(0, 20); // Limit to 20
+                                    productContainers = Array.from(containers).slice(0, 30); // Get more to filter later
                                     break;
                                 }
                             } catch (e) {
                                 continue;
                             }
+                        }
+                        
+                        // Filter out sponsored items and accessories for Amazon
+                        if (productContainers.length > 0) {
+                            productContainers = productContainers.filter(container => {
+                                const text = (container.textContent || container.innerText || '').toLowerCase();
+                                const name = (container.querySelector('h2 a span, h2 a')?.textContent || '').toLowerCase();
+                                
+                                // Filter out sponsored items
+                                if (text.includes('sponsored') || name.includes('sponsored')) {
+                                    return false;
+                                }
+                                
+                                // Filter out accessories when searching for laptops/computers
+                                // Common accessory keywords
+                                const accessoryKeywords = [
+                                    'sleeve', 'case', 'cover', 'skin', 'protector', 'keyboard cover',
+                                    'screen protector', 'stand', 'bag', 'carrying case', 'sticker',
+                                    'decals', 'adapter', 'charger', 'cable', 'hub', 'dock'
+                                ];
+                                
+                                // Check if this looks like an accessory
+                                const isAccessory = accessoryKeywords.some(keyword => 
+                                    name.includes(keyword) || text.includes(keyword)
+                                );
+                                
+                                // If searching for a product (not an accessory), filter out accessories
+                                // This is a heuristic - if the search query contains product names like "macbook", "laptop", etc.
+                                // and the item is clearly an accessory, filter it out
+                                const searchQuery = window.location.search || '';
+                                const isProductSearch = /macbook|laptop|computer|phone|tablet|watch/i.test(searchQuery);
+                                
+                                if (isProductSearch && isAccessory) {
+                                    return false;
+                                }
+                                
+                                return true;
+                            }).slice(0, 20); // Limit to 20 after filtering
                         }
                     }
                     
@@ -1956,13 +1992,22 @@ For selectors, use the most reliable one: id > name > type+placeholder > classNa
                                     // Clean up name - remove extra whitespace and limit length
                                     if (name) {
                                         name = name.replace(/\s+/g, ' ').trim();
+                                        
+                                        // For Amazon, remove "Sponsored" prefix
+                                        if (site === 'amazon') {
+                                            name = name.replace(/^Sponsored\s*/i, '');
+                                            name = name.replace(/Sponsored\s*You are seeing this ad based on.*?Let us know\s*/i, '');
+                                        }
+                                        
                                         // Remove common prefixes
                                         name = name.replace(/^(Add to Compare|Compare|Add to Cart|Buy Now)\s*/i, '');
+                                        
                                         // Try to extract just the product name (before first number or special marker)
                                         const nameMatch = name.match(/^([^0-9₹$]*?)(?:\s*[-–—]|\s+\d|₹|$)/);
                                         if (nameMatch && nameMatch[1].trim().length > 5) {
                                             name = nameMatch[1].trim();
                                         }
+                                        
                                         // Limit to reasonable length
                                         if (name.length > 100) {
                                             name = name.substring(0, 100).trim() + '...';
@@ -1975,31 +2020,63 @@ For selectors, use the most reliable one: id > name > type+placeholder > classNa
                             // Extract price - try multiple strategies (prefer discounted price)
                             if (schema.price) {
                                 let price = null;
-                                const priceSelectors = [schema.price];
-                                if (siteSelectors && siteSelectors.product_price) {
-                                    priceSelectors.push(...siteSelectors.product_price);
-                                }
-                                const priceValues = trySelectors(priceSelectors, container, false);
                                 
-                                // For Flipkart, try to find the discounted price (usually first price shown)
-                                if (priceValues.length > 0) {
-                                    // Take the first price (usually the discounted one)
-                                    price = priceValues[0];
-                                } else {
-                                    // Fallback: look for price-like patterns in text
-                                    const containerText = container.textContent || container.innerText || '';
-                                    // For Amazon, try specific price selectors
-                                    if (site === 'amazon') {
-                                        const amazonPrice = container.querySelector('.a-price-whole, .a-price .a-offscreen, .a-price');
-                                        if (amazonPrice) {
-                                            price = amazonPrice.textContent?.trim() || amazonPrice.innerText?.trim();
+                                // For Amazon, use .a-offscreen which contains the full price as a single string
+                                if (site === 'amazon') {
+                                    // Try .a-offscreen first (most reliable - contains full price like "₹93,900.00")
+                                    const offscreenPrice = container.querySelector('.a-price .a-offscreen');
+                                    if (offscreenPrice) {
+                                        price = offscreenPrice.textContent?.trim() || offscreenPrice.innerText?.trim();
+                                    }
+                                    
+                                    // Fallback: construct price from components if offscreen not available
+                                    if (!price) {
+                                        const priceWhole = container.querySelector('.a-price-whole');
+                                        const priceSymbol = container.querySelector('.a-price-symbol');
+                                        const priceFraction = container.querySelector('.a-price-fraction');
+                                        
+                                        if (priceWhole) {
+                                            let wholeText = priceWhole.textContent?.trim() || priceWhole.innerText?.trim() || '';
+                                            // Remove commas from whole number
+                                            wholeText = wholeText.replace(/,/g, '');
+                                            
+                                            if (priceSymbol && priceFraction) {
+                                                const symbol = priceSymbol.textContent?.trim() || '';
+                                                const fraction = priceFraction.textContent?.trim() || '';
+                                                price = symbol + wholeText + '.' + fraction;
+                                            } else if (priceSymbol) {
+                                                const symbol = priceSymbol.textContent?.trim() || '';
+                                                price = symbol + wholeText;
+                                            } else {
+                                                price = wholeText;
+                                            }
                                         }
                                     }
+                                    
+                                    // Final fallback: try text pattern matching
                                     if (!price) {
-                                        // Try to find all prices and take the first one (discounted price)
+                                        const containerText = container.textContent || container.innerText || '';
+                                        // Match price pattern: ₹ followed by digits and commas
+                                        const priceMatch = containerText.match(/[₹$]\s*([\d,]+(?:\.\d{2})?)/);
+                                        if (priceMatch) {
+                                            price = priceMatch[0].trim();
+                                        }
+                                    }
+                                } else {
+                                    // For other sites, use existing logic
+                                    const priceSelectors = [schema.price];
+                                    if (siteSelectors && siteSelectors.product_price) {
+                                        priceSelectors.push(...siteSelectors.product_price);
+                                    }
+                                    const priceValues = trySelectors(priceSelectors, container, false);
+                                    
+                                    if (priceValues.length > 0) {
+                                        price = priceValues[0];
+                                    } else {
+                                        // Fallback: look for price-like patterns in text
+                                        const containerText = container.textContent || container.innerText || '';
                                         const priceMatches = containerText.match(/[₹$]\s*[\d,]+/g);
                                         if (priceMatches && priceMatches.length > 0) {
-                                            // First price is usually the discounted price
                                             price = priceMatches[0];
                                         }
                                     }
@@ -2213,12 +2290,28 @@ For selectors, use the most reliable one: id > name > type+placeholder > classNa
                         # Clean and parse values
                         if field == 'price' and value:
                             # Extract numeric price (remove currency symbols, commas)
-                            # Handle Indian format: ₹1,00,000 or 1,00,000
-                            price_str = re.sub(r'[^\d.]', '', str(value).replace(',', ''))
-                            try:
-                                item[field] = float(price_str) if price_str else None
-                            except:
-                                item[field] = value
+                            # Handle Indian format: ₹1,25,999 or 1,25,999 or ₹125999
+                            price_clean = str(value).strip()
+                            # Remove currency symbols and commas first
+                            price_clean = re.sub(r'[₹$€£,\s]', '', price_clean)
+                            # Extract only digits and decimal point
+                            price_str = re.sub(r'[^\d.]', '', price_clean)
+                            
+                            if price_str:
+                                try:
+                                    item[field] = float(price_str)
+                                except (ValueError, TypeError):
+                                    # Fallback: try to extract first number
+                                    numbers = re.findall(r'\d+\.?\d*', price_clean)
+                                    if numbers:
+                                        try:
+                                            item[field] = float(numbers[0])
+                                        except:
+                                            item[field] = None
+                                    else:
+                                        item[field] = None
+                            else:
+                                item[field] = None
                         elif field == 'rating' and value:
                             # Extract numeric rating (handle "4.5", "4.5 out of 5", "4.5 Ratings", etc.)
                             # Try to extract just the number

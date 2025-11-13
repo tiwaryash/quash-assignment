@@ -47,6 +47,7 @@ export default function ChatWindow() {
   const [input, setInput] = useState('');
   const [connected, setConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [selectedClarifications, setSelectedClarifications] = useState<Set<string>>(new Set());
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -82,10 +83,26 @@ export default function ChatWindow() {
           setIsLoading(false);
         }
         
-        setMessages(prev => [...prev, {
-          ...data,
-          timestamp: Date.now()
-        }]);
+        // For action_status messages, replace existing card for the same step instead of adding new one
+        if (data.type === 'action_status' && data.step !== undefined) {
+          setMessages(prev => {
+            // Find and remove existing card for this step
+            const filtered = prev.filter(msg => 
+              !(msg.type === 'action_status' && msg.step === data.step)
+            );
+            // Add the new/updated card
+            return [...filtered, {
+              ...data,
+              timestamp: Date.now()
+            }];
+          });
+        } else {
+          // For other message types, just add them
+          setMessages(prev => [...prev, {
+            ...data,
+            timestamp: Date.now()
+          }]);
+        }
       };
 
       ws.onerror = (error) => {
@@ -344,33 +361,63 @@ export default function ChatWindow() {
           }
           
           if (msg.type === 'clarification') {
+            const clarificationId = `${msg.timestamp}-${msg.question}`;
+            const isFrozen = selectedClarifications.has(clarificationId);
+            
             return (
               <div key={idx} className="animate-slide-in-left">
-                <div className="bg-black/50 border-2 border-yellow-500/50 rounded-2xl p-5 yellow-glow">
+                <div className={`bg-black/50 border-2 border-yellow-500/50 rounded-2xl p-5 ${isFrozen ? 'opacity-60' : 'yellow-glow'}`}>
                   <div className="flex items-center gap-3 mb-4">
                     <div className="bg-yellow-500/20 p-2 rounded-xl">
                       <HelpCircle className="w-6 h-6 text-yellow-500" />
                     </div>
                     <span className="font-black text-yellow-500 text-lg">Question</span>
+                    {isFrozen && (
+                      <span className="ml-auto text-xs bg-yellow-500/20 text-yellow-500 px-3 py-1.5 rounded-full font-bold border border-yellow-500/30">
+                        Answered
+                      </span>
+                    )}
                   </div>
                   <div className="text-sm text-yellow-300 mb-4 font-medium">
                     {msg.question}
                   </div>
                   {msg.options && msg.options.length > 0 && (
                     <div className="space-y-2">
-                      {msg.options.map((option: {value: string; label: string}, optIdx: number) => (
-                        <button
-                          key={optIdx}
-                          onClick={() => {
-                            const clarificationType = msg.clarification_type || msg.context || (msg.field === 'site' ? 'site_selection' : undefined);
-                            sendMessage(option.value, clarificationType);
-                          }}
-                          className="group w-full text-left px-5 py-3 bg-black/50 hover:bg-yellow-500/10 border-2 border-yellow-500/30 hover:border-yellow-500/60 rounded-xl text-sm text-yellow-400 hover:text-yellow-500 transition-all font-semibold flex items-center justify-between"
-                        >
-                          {option.label}
-                          <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
-                        </button>
-                      ))}
+                      {msg.options.map((option: {value: string; label: string}, optIdx: number) => {
+                        const optionId = `${clarificationId}-${optIdx}`;
+                        const isSelected = selectedClarifications.has(optionId);
+                        
+                        return (
+                          <button
+                            key={optIdx}
+                            onClick={() => {
+                              if (isFrozen || isSelected) return; // Prevent multiple clicks
+                              
+                              const clarificationType = msg.clarification_type || msg.context || (msg.field === 'site' ? 'site_selection' : undefined);
+                              setSelectedClarifications(prev => {
+                                const newSet = new Set(prev);
+                                newSet.add(clarificationId); // Mark clarification as answered
+                                newSet.add(optionId); // Mark option as selected
+                                return newSet;
+                              });
+                              sendMessage(option.value, clarificationType);
+                            }}
+                            disabled={isFrozen || isSelected}
+                            className={`group w-full text-left px-5 py-3 border-2 rounded-xl text-sm font-semibold flex items-center justify-between transition-all ${
+                              isFrozen || isSelected
+                                ? 'bg-black/30 border-yellow-500/20 text-yellow-500/40 cursor-not-allowed'
+                                : 'bg-black/50 hover:bg-yellow-500/10 border-yellow-500/30 hover:border-yellow-500/60 text-yellow-400 hover:text-yellow-500'
+                            }`}
+                          >
+                            {option.label}
+                            {isSelected ? (
+                              <CheckCircle2 className="w-4 h-4 text-yellow-500" />
+                            ) : (
+                              <ArrowRight className={`w-4 h-4 transition-opacity ${isFrozen ? 'opacity-0' : 'opacity-0 group-hover:opacity-100'}`} />
+                            )}
+                          </button>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
