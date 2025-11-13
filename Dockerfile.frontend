@@ -1,26 +1,30 @@
-FROM node:18-alpine
+FROM node:20-alpine
 
 WORKDIR /app
 
-# Copy package files
+# Install build dependencies for native modules (lightningcss)
+RUN apk add --no-cache python3 make g++
+
+# Copy package files first for better layer caching
 COPY frontend/package*.json ./
 
-# Install dependencies
-RUN npm ci --only=production
+# Install all deps (need dev deps for build)
+RUN npm ci
 
-# Copy application code
+# Copy rest of the app
 COPY frontend/ ./
 
-# Build the Next.js application
+# Build Next.js
 RUN npm run build
 
-# Expose port
+# Remove dev dependencies after build to reduce image size
+RUN npm prune --production
+
 EXPOSE 3000
 
-# Health check
+# Healthcheck for Next.js
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
     CMD node -e "require('http').get('http://localhost:3000/api/health', (r) => {if(r.statusCode !== 200) throw new Error(r.statusCode)})"
 
-# Start the application
 CMD ["npm", "start"]
 
