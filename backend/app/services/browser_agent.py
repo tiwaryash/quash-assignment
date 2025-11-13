@@ -1,13 +1,15 @@
-from playwright.async_api import async_playwright, Page, Browser, BrowserContext
+from playwright.async_api import async_playwright, Page, Browser, BrowserContext, TimeoutError as PlaywrightTimeout
 from app.services.site_selectors import get_selectors_for_site, detect_site_from_url
 from app.core.config import settings
-from openai import OpenAI
+from app.core.retry import retry_async, RetryConfig
+from app.core.logger import logger, log_action
+from app.core.llm_provider import get_llm_provider
 import asyncio
 import json
 import random
 import string
 import urllib.parse
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 class BrowserAgent:
     def __init__(self):
@@ -16,15 +18,24 @@ class BrowserAgent:
         self.page: Page | None = None
         self.playwright = None
         self.current_site: str = "generic"  # Track current site for selector strategies
+        self._retry_config = RetryConfig(max_retries=3, initial_delay=1.0, exponential_base=2.0)
 
     async def start(self):
-        """Initialize browser instance."""
+        """Initialize browser instance with error handling."""
         if self.browser is None:
-            self.playwright = await async_playwright().start()
-            self.browser = await self.playwright.chromium.launch(
-                headless=True,
-                args=['--disable-blink-features=AutomationControlled']  # Hide automation
-            )
+            try:
+                self.playwright = await async_playwright().start()
+                self.browser = await self.playwright.chromium.launch(
+                    headless=settings.headless,
+                    args=[
+                        '--disable-blink-features=AutomationControlled',
+                        '--disable-dev-shm-usage',  # Overcome limited resource problems
+                        '--no-sandbox',  # Required for some environments
+                    ]
+                )
+            except Exception as e:
+                logger.error(f"Failed to start browser: {e}")
+                raise
             # Create context with realistic browser settings
             self.context = await self.browser.new_context(
                 viewport={'width': 1920, 'height': 1080},
@@ -1122,7 +1133,11 @@ class BrowserAgent:
                 }
             
             # Use LLM to determine what values to fill
-            client = OpenAI(api_key=settings.openai_api_key)
+            try:
+                llm_provider = get_llm_provider()
+            except Exception as e:
+                logger.error(f"Failed to initialize LLM provider for form analysis: {e}")
+                return {"status": "error", "error": "LLM provider not configured"}
             
             # Build prompt for LLM
             fields_description = json.dumps(form_data["fields"], indent=2)
@@ -1162,8 +1177,7 @@ Return JSON in this format:
 Use field identifiers like: email, password, name, first_name, last_name, phone, etc.
 For selectors, use the most reliable one: id > name > type+placeholder > className"""
             
-            response = client.chat.completions.create(
-                model=settings.openai_model,
+            response_content = await llm_provider.chat_completion(
                 messages=[
                     {"role": "system", "content": "You are a form analysis assistant. Analyze forms and determine appropriate values to fill. Always return valid JSON."},
                     {"role": "user", "content": prompt}
@@ -1172,7 +1186,7 @@ For selectors, use the most reliable one: id > name > type+placeholder > classNa
                 response_format={"type": "json_object"}
             )
             
-            result = json.loads(response.choices[0].message.content)
+            result = json.loads(response_content)
             
             # Extract fields from LLM response
             analyzed_fields = result.get("fields", {})
