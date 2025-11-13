@@ -2,6 +2,23 @@
 
 import { useState, useEffect, useRef } from 'react';
 import ActionCard from './ActionCard';
+import { 
+  Send, 
+  Loader2, 
+  Circle, 
+  CheckCircle2, 
+  XCircle, 
+  AlertCircle,
+  MessageSquare,
+  ListChecks,
+  HelpCircle,
+  ShieldAlert,
+  Wifi,
+  WifiOff,
+  Sparkles,
+  Lightbulb,
+  ArrowRight
+} from 'lucide-react';
 
 interface Message {
   type: string;
@@ -85,7 +102,6 @@ export default function ChatWindow() {
           timestamp: Date.now()
         }]);
         
-        // Reconnect after 3 seconds
         setTimeout(connect, 3000);
       };
 
@@ -124,45 +140,74 @@ export default function ChatWindow() {
     }
   };
 
+  const exampleQueries = [
+    "Find MacBook Air under ₹1,00,000",
+    "Find top pizza places in Indiranagar",
+    "Compare laptops on Flipkart and Amazon",
+    "Search for best restaurants near me"
+  ];
+
   return (
-    <div className="flex flex-col h-[calc(100vh-200px)] min-h-[600px] bg-slate-900/50 backdrop-blur-sm rounded-2xl border border-slate-700/50 shadow-2xl overflow-hidden">
+    <div className="flex flex-col h-full bg-black/40 backdrop-blur-xl rounded-3xl border-2 border-yellow-500/30 shadow-2xl overflow-hidden relative">
+      {/* Glow Effect */}
+      <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/5 via-transparent to-yellow-500/5 pointer-events-none"></div>
+      
       {/* Header */}
-      <div className="flex items-center justify-between p-4 border-b border-slate-700/50 bg-slate-800/30">
-        <div className="flex items-center gap-3">
-          <div className={`w-3 h-3 rounded-full ${connected ? 'bg-emerald-500 pulse-glow' : 'bg-red-500'}`}></div>
-          <span className="text-sm font-medium text-slate-300">
-            {connected ? 'Connected' : 'Disconnected'}
-          </span>
+      <div className="relative flex items-center justify-between p-3 border-b-2 border-yellow-500/30 bg-black/50 flex-shrink-0">
+        <div className="flex items-center gap-2">
+          <div className={`relative flex items-center gap-1.5 px-3 py-1.5 rounded-full border transition-all ${
+            connected 
+              ? 'bg-yellow-500/10 border-yellow-500/50' 
+              : 'bg-red-500/10 border-red-500/50'
+          }`}>
+            {connected ? (
+              <>
+                <Wifi className="w-3.5 h-3.5 text-yellow-500" />
+                <span className="text-xs font-bold text-yellow-500">Connected</span>
+                <div className="w-1.5 h-1.5 bg-yellow-500 rounded-full glow-pulse"></div>
+              </>
+            ) : (
+              <>
+                <WifiOff className="w-3.5 h-3.5 text-red-400" />
+                <span className="text-xs font-bold text-red-400">Disconnected</span>
+              </>
+            )}
+          </div>
         </div>
         {isLoading && (
-          <div className="flex items-center gap-2 text-sm text-amber-400">
-            <div className="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
-            <span>Processing...</span>
+          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-yellow-500/10 border border-yellow-500/50 rounded-full">
+            <Loader2 className="w-3.5 h-3.5 text-yellow-500 animate-spin" />
+            <span className="text-xs font-bold text-yellow-500">Processing...</span>
           </div>
         )}
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gradient-to-b from-slate-900/50 to-slate-800/30 min-h-[400px]">
+      <div className="flex-1 overflow-y-auto p-4 space-y-3 relative min-h-0">
         {messages.length === 0 && (
-          <div className="text-center py-12">
-            <div className="text-6xl mb-4">🤖</div>
-            <h3 className="text-xl font-semibold text-slate-300 mb-2">Welcome to Quash Browser Agent</h3>
-            <p className="text-slate-400 mb-6">Start by sending a natural language instruction</p>
-            <p className="text-xs text-slate-500 mb-4">Make sure the backend server is running on port 8000</p>
+          <div className="text-center py-6 animate-slide-in">
+            <div className="relative inline-block mb-4">
+              <div className="absolute inset-0 bg-yellow-500/20 rounded-2xl blur-xl"></div>
+              <div className="relative bg-gradient-to-br from-yellow-400 to-yellow-600 p-4 rounded-2xl">
+                <MessageSquare className="w-10 h-10 text-black" strokeWidth={2} />
+              </div>
+            </div>
+            
+            <h3 className="text-xl font-black text-yellow-500 mb-2">Welcome to Quash Browser Agent</h3>
+            <p className="text-yellow-500/60 mb-1 font-medium text-sm">Start by sending a natural language instruction</p>
+            <p className="text-xs text-yellow-500/40 mb-4 font-medium">Backend server: port 8000</p>
+            
             <div className="flex flex-wrap gap-2 justify-center max-w-2xl mx-auto">
-              {[
-                "Find MacBook Air under ₹1,00,000",
-                "Find top pizza places in Indiranagar",
-                "Compare laptops on Flipkart and Amazon",
-                "Search for best restaurants near me"
-              ].map((example, idx) => (
+              {exampleQueries.map((example, idx) => (
                 <button
                   key={idx}
                   onClick={() => setInput(example)}
-                  className="px-4 py-2 bg-slate-800/50 hover:bg-slate-700/50 text-slate-300 rounded-lg text-sm transition-colors border border-slate-700/50 hover:border-slate-600/50"
+                  className="group px-3 py-2 bg-black/50 hover:bg-yellow-500/10 border border-yellow-500/30 hover:border-yellow-500/60 text-yellow-500/80 hover:text-yellow-500 rounded-lg text-xs font-semibold transition-all hover-lift"
                 >
-                  {example}
+                  <div className="flex items-center gap-1.5">
+                    <Sparkles className="w-3 h-3 group-hover:rotate-12 transition-transform" />
+                    {example}
+                  </div>
                 </button>
               ))}
             </div>
@@ -172,9 +217,9 @@ export default function ChatWindow() {
         {messages.map((msg, idx) => {
           if (msg.type === 'user') {
             return (
-              <div key={idx} className="flex justify-end animate-slide-in">
-                <div className="max-w-[80%] bg-gradient-to-r from-blue-600 to-blue-500 text-white rounded-2xl rounded-br-sm px-4 py-3 shadow-lg">
-                  <p className="text-sm leading-relaxed">{msg.message}</p>
+              <div key={idx} className="flex justify-end animate-slide-in-right">
+                <div className="max-w-[80%] bg-gradient-to-r from-yellow-500 to-yellow-600 text-black rounded-2xl rounded-br-md px-5 py-3 shadow-lg border-2 border-yellow-400">
+                  <p className="text-sm leading-relaxed font-semibold">{msg.message}</p>
                 </div>
               </div>
             );
@@ -196,24 +241,26 @@ export default function ChatWindow() {
           
           if (msg.type === 'plan') {
             return (
-              <div key={idx} className="animate-slide-in">
-                <div className="bg-gradient-to-r from-purple-600/20 to-indigo-600/20 border border-purple-500/50 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="text-2xl">📋</span>
-                    <span className="font-semibold text-purple-300">Action Plan</span>
-                    <span className="text-xs bg-purple-500/20 text-purple-300 px-2 py-1 rounded-full">
+              <div key={idx} className="animate-slide-in-left">
+                <div className="bg-black/50 border-2 border-yellow-500/50 rounded-2xl p-5 yellow-glow">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="bg-yellow-500/20 p-2 rounded-xl">
+                      <ListChecks className="w-6 h-6 text-yellow-500" />
+                    </div>
+                    <span className="font-black text-yellow-500 text-lg">Action Plan</span>
+                    <span className="ml-auto text-xs bg-yellow-500/20 text-yellow-500 px-3 py-1.5 rounded-full font-bold border border-yellow-500/30">
                       {msg.data?.length || 0} steps
                     </span>
                   </div>
                   <div className="space-y-2">
                     {msg.data?.map((action: any, i: number) => (
-                      <div key={i} className="flex items-center gap-3 text-sm bg-slate-800/30 p-2 rounded-lg">
-                        <span className="w-6 h-6 rounded-full bg-purple-500/20 text-purple-300 flex items-center justify-center text-xs font-semibold">
+                      <div key={i} className="flex items-center gap-3 text-sm bg-black/40 p-3 rounded-xl border border-yellow-500/20 hover:border-yellow-500/40 transition-colors">
+                        <div className="w-7 h-7 rounded-full bg-yellow-500/20 text-yellow-500 flex items-center justify-center text-xs font-black border border-yellow-500/30">
                           {i + 1}
-                        </span>
-                        <span className="text-slate-300 capitalize">{action.action}</span>
+                        </div>
+                        <span className="text-yellow-500/90 capitalize font-semibold">{action.action}</span>
                         {action.selector && (
-                          <code className="text-xs text-slate-400 ml-auto font-mono">
+                          <code className="text-xs text-yellow-500/60 ml-auto font-mono bg-black/50 px-2 py-1 rounded border border-yellow-500/20">
                             {action.selector}
                           </code>
                         )}
@@ -227,22 +274,25 @@ export default function ChatWindow() {
           
           if (msg.type === 'error') {
             return (
-              <div key={idx} className="animate-slide-in">
-                <div className="bg-gradient-to-r from-red-600/20 to-rose-600/20 border border-red-500/50 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-xl">❌</span>
-                    <span className="font-semibold text-red-300">Error</span>
+              <div key={idx} className="animate-slide-in-left">
+                <div className="bg-black/50 border-2 border-red-500/50 rounded-2xl p-5">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="bg-red-500/20 p-2 rounded-xl">
+                      <XCircle className="w-6 h-6 text-red-400" />
+                    </div>
+                    <span className="font-black text-red-400 text-lg">Error</span>
                   </div>
-                  <div className="text-sm text-red-200 whitespace-pre-line">
+                  <div className="text-sm text-red-300 whitespace-pre-line font-medium">
                     {msg.message}
                   </div>
                   {msg.suggestions && msg.suggestions.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-red-500/30">
-                      <div className="text-xs font-semibold text-blue-300 mb-2">
-                        {msg.action === 'navigate' ? '💡 Suggestions:' : '💡 Suggested selectors:'}
+                    <div className="mt-4 pt-4 border-t border-red-500/30">
+                      <div className="flex items-center gap-2 text-xs font-black text-yellow-500 mb-3">
+                        <Lightbulb className="w-4 h-4" />
+                        {msg.action === 'navigate' ? 'Suggestions:' : 'Suggested selectors:'}
                       </div>
                       {msg.action === 'navigate' ? (
-                        <ul className="list-disc list-inside text-xs text-blue-200 space-y-1">
+                        <ul className="list-disc list-inside text-xs text-yellow-400 space-y-1 font-medium">
                           {msg.suggestions.map((suggestion: string, i: number) => (
                             <li key={i}>{suggestion}</li>
                           ))}
@@ -250,7 +300,7 @@ export default function ChatWindow() {
                       ) : (
                         <div className="flex flex-wrap gap-2">
                           {msg.suggestions.map((suggestion: string, i: number) => (
-                            <code key={i} className="text-xs bg-slate-800/50 text-blue-200 px-2 py-1 rounded border border-blue-500/30">
+                            <code key={i} className="text-xs bg-black/50 text-yellow-400 px-3 py-1.5 rounded-lg border border-yellow-500/30 font-mono">
                               {suggestion}
                             </code>
                           ))}
@@ -259,8 +309,11 @@ export default function ChatWindow() {
                     </div>
                   )}
                   {msg.message?.includes('API key') && (
-                    <div className="mt-3 pt-3 border-t border-red-500/30 text-xs text-red-300">
-                      💡 Make sure to set your OPENAI_API_KEY in backend/.env file
+                    <div className="mt-4 pt-4 border-t border-red-500/30 flex items-start gap-2">
+                      <AlertCircle className="w-4 h-4 text-yellow-500 flex-shrink-0 mt-0.5" />
+                      <span className="text-xs text-yellow-400 font-medium">
+                        Make sure to set your OPENAI_API_KEY in backend/.env file
+                      </span>
                     </div>
                   )}
                 </div>
@@ -271,7 +324,8 @@ export default function ChatWindow() {
           if (msg.type === 'status') {
             return (
               <div key={idx} className="flex justify-center animate-slide-in">
-                <div className="bg-slate-800/50 border border-slate-700/50 rounded-full px-4 py-2 text-sm text-slate-400">
+                <div className="bg-black/40 border border-yellow-500/30 rounded-full px-5 py-2 text-sm text-yellow-500/70 font-medium inline-flex items-center gap-2">
+                  <Circle className="w-3 h-3" />
                   {msg.message}
                 </div>
               </div>
@@ -281,7 +335,8 @@ export default function ChatWindow() {
           if (msg.type === 'system') {
             return (
               <div key={idx} className="flex justify-center">
-                <div className="bg-slate-800/30 border border-slate-700/30 rounded-full px-4 py-2 text-xs text-slate-500">
+                <div className="bg-black/30 border border-yellow-500/20 rounded-full px-4 py-1.5 text-xs text-yellow-500/50 font-medium inline-flex items-center gap-2">
+                  <Circle className="w-2 h-2" />
                   {msg.message}
                 </div>
               </div>
@@ -290,13 +345,15 @@ export default function ChatWindow() {
           
           if (msg.type === 'clarification') {
             return (
-              <div key={idx} className="animate-slide-in">
-                <div className="bg-gradient-to-r from-amber-600/20 to-yellow-600/20 border border-amber-500/50 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span className="text-2xl">❓</span>
-                    <span className="font-semibold text-amber-300">Question</span>
+              <div key={idx} className="animate-slide-in-left">
+                <div className="bg-black/50 border-2 border-yellow-500/50 rounded-2xl p-5 yellow-glow">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="bg-yellow-500/20 p-2 rounded-xl">
+                      <HelpCircle className="w-6 h-6 text-yellow-500" />
+                    </div>
+                    <span className="font-black text-yellow-500 text-lg">Question</span>
                   </div>
-                  <div className="text-sm text-amber-200 mb-4">
+                  <div className="text-sm text-yellow-300 mb-4 font-medium">
                     {msg.question}
                   </div>
                   {msg.options && msg.options.length > 0 && (
@@ -305,12 +362,13 @@ export default function ChatWindow() {
                         <button
                           key={optIdx}
                           onClick={() => {
-                            const clarificationType = msg.clarification_type || msg.context || (msg.field === 'site' ? 'site_selection' : null);
+                            const clarificationType = msg.clarification_type || msg.context || (msg.field === 'site' ? 'site_selection' : undefined);
                             sendMessage(option.value, clarificationType);
                           }}
-                          className="w-full text-left px-4 py-3 bg-slate-800/50 hover:bg-slate-700/50 border border-amber-500/30 rounded-lg text-sm text-amber-200 transition-colors"
+                          className="group w-full text-left px-5 py-3 bg-black/50 hover:bg-yellow-500/10 border-2 border-yellow-500/30 hover:border-yellow-500/60 rounded-xl text-sm text-yellow-400 hover:text-yellow-500 transition-all font-semibold flex items-center justify-between"
                         >
                           {option.label}
+                          <ArrowRight className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
                         </button>
                       ))}
                     </div>
@@ -322,19 +380,24 @@ export default function ChatWindow() {
           
           if (msg.type === 'blocked') {
             return (
-              <div key={idx} className="animate-slide-in">
-                <div className="bg-gradient-to-r from-orange-600/20 to-red-600/20 border border-orange-500/50 rounded-xl p-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <span className="text-xl">🚫</span>
-                    <span className="font-semibold text-orange-300">Blocked</span>
+              <div key={idx} className="animate-slide-in-left">
+                <div className="bg-black/50 border-2 border-orange-500/50 rounded-2xl p-5">
+                  <div className="flex items-center gap-3 mb-3">
+                    <div className="bg-orange-500/20 p-2 rounded-xl">
+                      <ShieldAlert className="w-6 h-6 text-orange-400" />
+                    </div>
+                    <span className="font-black text-orange-400 text-lg">Blocked</span>
                   </div>
-                  <div className="text-sm text-orange-200 whitespace-pre-line mb-3">
+                  <div className="text-sm text-orange-300 whitespace-pre-line mb-3 font-medium">
                     {msg.message}
                   </div>
                   {msg.alternatives && msg.alternatives.length > 0 && (
-                    <div className="mt-3 pt-3 border-t border-orange-500/30">
-                      <div className="text-xs font-semibold text-orange-300 mb-2">💡 Alternatives:</div>
-                      <ul className="list-disc list-inside text-xs text-orange-200 space-y-1">
+                    <div className="mt-4 pt-4 border-t border-orange-500/30">
+                      <div className="flex items-center gap-2 text-xs font-black text-yellow-500 mb-3">
+                        <Lightbulb className="w-4 h-4" />
+                        Alternatives:
+                      </div>
+                      <ul className="list-disc list-inside text-xs text-orange-300 space-y-1 font-medium">
                         {msg.alternatives.map((alt: string, altIdx: number) => (
                           <li key={altIdx}>{alt}</li>
                         ))}
@@ -352,8 +415,8 @@ export default function ChatWindow() {
       </div>
 
       {/* Input */}
-      <div className="p-4 border-t border-slate-700/50 bg-slate-800/30">
-        <div className="flex gap-3">
+      <div className="relative p-3 border-t-2 border-yellow-500/30 bg-black/50 flex-shrink-0">
+        <div className="flex gap-2">
           <div className="flex-1 relative">
             <input
               type="text"
@@ -361,36 +424,37 @@ export default function ChatWindow() {
               onChange={(e) => setInput(e.target.value)}
               onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
               placeholder={connected ? "Type your instruction... (e.g., 'Find MacBook Air under ₹1,00,000')" : "Connecting to server..."}
-              className="w-full px-4 py-3 bg-slate-800/50 border border-slate-700/50 rounded-xl text-slate-200 placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-blue-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full px-4 py-3 bg-black/50 border-2 border-yellow-500/30 rounded-xl text-yellow-500 placeholder-yellow-500/40 focus:outline-none focus:ring-2 focus:ring-yellow-500/50 focus:border-yellow-500/60 transition-all disabled:opacity-50 disabled:cursor-not-allowed font-medium text-sm"
               disabled={!connected || isLoading}
             />
           </div>
           <button
             onClick={() => sendMessage()}
             disabled={!connected || !input.trim() || isLoading}
-            className="px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-500 hover:from-blue-500 hover:to-blue-400 text-white font-medium rounded-xl shadow-lg hover:shadow-blue-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-lg flex items-center gap-2 min-w-[100px] justify-center"
+            className="group px-6 py-3 bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-400 hover:to-yellow-500 text-black font-black rounded-xl shadow-lg hover:shadow-yellow-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:shadow-lg flex items-center gap-2 min-w-[100px] justify-center border-2 border-yellow-400"
           >
             {isLoading ? (
               <>
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                <span>Sending...</span>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span className="text-sm">Send</span>
               </>
             ) : (
               <>
-                <span>Send</span>
-                <span>→</span>
+                <span className="text-sm">Send</span>
+                <Send className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
               </>
             )}
           </button>
         </div>
         {!connected && (
-          <div className="mt-2 text-xs text-amber-400 text-center">
-            ⚠️ Backend not connected. Make sure the server is running on port 8000
+          <div className="mt-2 flex items-center justify-center gap-1.5 text-xs text-orange-400 font-medium">
+            <AlertCircle className="w-3 h-3" />
+            Backend not connected. Server: port 8000
           </div>
         )}
         {connected && (
-          <div className="mt-2 text-xs text-slate-500 text-center">
-            Press Enter to send • Shift+Enter for new line
+          <div className="mt-2 text-xs text-yellow-500/50 text-center font-medium">
+            Press Enter to send
           </div>
         )}
       </div>
