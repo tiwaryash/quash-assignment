@@ -21,6 +21,9 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
             if "original_instruction" not in manager.session_states[session_id] or not manager.session_states[session_id]["original_instruction"]:
                 manager.session_states[session_id]["original_instruction"] = instruction
         
+        # Add user instruction to conversation history
+        conversation_manager.add_to_history(session_id, "user", instruction)
+        
         # If this is a clarification response, process it first
         if is_clarification_response:
             clarification_result = conversation_manager.process_clarification_response(instruction, session_id)
@@ -38,6 +41,9 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                 })
                 return
         
+        # Apply learned preferences to instruction
+        instruction = conversation_manager.apply_learned_preferences(instruction, session_id)
+        
         # Check if clarification is needed
         clarification = conversation_manager.needs_clarification(instruction, session_id)
         if clarification:
@@ -45,6 +51,15 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
             # Ensure original instruction is stored
             if session_id in manager.session_states:
                 manager.session_states[session_id]["original_instruction"] = instruction
+            
+            # Add clarification to history
+            conversation_manager.add_to_history(
+                session_id, 
+                "assistant", 
+                clarification["question"],
+                {"type": "clarification", "context": clarification.get("context")}
+            )
+            
             await websocket.send_json({
                 "type": "clarification",
                 "question": clarification["question"],
@@ -98,6 +113,114 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
         
         # Step 2: Initialize browser
         await browser_agent.start()
+        
+        # Check if this is a Google Maps local discovery - use specialized function
+        intent_info = plan[0].get("_intent", {}) if plan else {}
+        if intent_info.get("intent") == "local_discovery":
+            # Check if any action mentions Google Maps
+            has_google_maps = any(
+                "google" in str(action.get("url", "")).lower() or 
+                "maps" in str(action.get("url", "")).lower() or
+                browser_agent.current_site == "google_maps"
+                for action in plan
+            )
+            
+            if has_google_maps:
+                await websocket.send_json({
+                    "type": "status",
+                    "message": "Using optimized Google Maps search..."
+                })
+                
+                # Extract query from original instruction
+                original_instruction = manager.session_states.get(session_id, {}).get("original_instruction", instruction)
+                
+                # Clean up the query - remove common prefixes and "on google maps" but keep the actual search terms
+                query = original_instruction
+                query_lower = query.lower()
+                
+                # Remove prefixes but keep the search terms
+                prefixes = ["find", "search for", "show me", "get me", "look for"]
+                for prefix in prefixes:
+                    if query_lower.startswith(prefix):
+                        query = query[len(prefix):].strip()
+                        query_lower = query.lower()
+                        break
+                
+                # Remove "on google maps" suffix if present
+                for suffix in ["on google maps", "on google", "using google maps", "via google maps"]:
+                    if query_lower.endswith(suffix):
+                        query = query[:-len(suffix)].strip()
+                        break
+                
+                # If query is empty or too short, use original
+                if not query or len(query.split()) < 2:
+                    query = original_instruction
+                
+                print(f"[EXECUTOR] Extracted query: '{query}' from '{original_instruction}'")
+                
+                # Extract location from query
+                import re
+                location_match = re.search(r'(?:in|near|at)\s+([A-Za-z\s]+)', query, re.IGNORECASE)
+                location = location_match.group(1).strip() if location_match else "HSR"
+                
+                # Map location names to coordinates
+                location_coords = {
+                    "hsr": (12.9116, 77.6446),
+                    "indiranagar": (12.9784, 77.6408),
+                    "koramangala": (12.9352, 77.6245),
+                    "whitefield": (12.9698, 77.7499),
+                    "bangalore": (12.9716, 77.5946),
+                    "bengaluru": (12.9716, 77.5946),
+                }
+                
+                loc_lower = location.lower()
+                lat, lng = location_coords.get(loc_lower, (12.9250, 77.6400))
+                
+                # Get limit from extract action if present
+                limit = None
+                for action in plan:
+                    if action.get("action") == "extract":
+                        limit = action.get("limit", 10)
+                        break
+                
+                print(f"[EXECUTOR] Direct Google Maps search: query='{query}', location={location}, limit={limit}")
+                
+                # Use specialized Maps search function
+                result = await browser_agent.search_google_maps(query, limit=limit or 10, lat=lat, lng=lng)
+                
+                # Format result
+                if result.get("status") == "success":
+                    for item in result.get("data", []):
+                        if "address" in item and "location" not in item:
+                            item["location"] = item.pop("address")
+                        elif "address" in item:
+                            item["location"] = item["address"]
+                        if "rating" in item and item["rating"]:
+                            try:
+                                item["rating"] = float(item["rating"])
+                            except:
+                                pass
+                        if "reviews" in item and item["reviews"]:
+                            try:
+                                item["reviews"] = int(item["reviews"])
+                            except:
+                                pass
+                    
+                    result["count"] = len(result.get("data", []))
+                    
+                    # Send result as if it came from extract action
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": "extract",
+                        "status": "completed",
+                        "step": len(plan),
+                        "total": len(plan),
+                        "result": result,
+                        "details": {"action": "extract", "limit": limit}
+                    })
+                    
+                    # Skip normal execution loop
+                    plan = []  # Empty plan so we skip the loop
         
         # Step 3: Execute each action
         for idx, action in enumerate(plan):
@@ -405,66 +528,131 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                     limit = action.get("limit", None)
                     intent_info = action.get("_intent", {})
                     
-                    # For form submissions, if no schema provided, extract form result
-                    if intent_info.get("intent") == "form_fill" and (not schema or len(schema) == 0):
-                        # Extract form submission result
-                        result_info = await browser_agent._detect_form_result()
-                        current_url = browser_agent.page.url if browser_agent.page else ""
-                        title = ""
-                        if browser_agent.page:
-                            try:
-                                title = await browser_agent.page.title()
-                            except:
-                                title = ""
+                    # For Google Maps, use the specialized search function if this is local discovery
+                    if browser_agent.current_site == "google_maps" and intent_info.get("intent") == "local_discovery":
+                        await websocket.send_json({
+                            "type": "status",
+                            "message": "Using optimized Google Maps extraction..."
+                        })
                         
-                        # Build extraction schema based on what's available
-                        if result_info.get("hasSuccessMessage") or result_info.get("hasErrorMessage"):
-                            # Extract messages
-                            messages = result_info.get("messages", [])
-                            if messages:
-                                result = {
-                                    "status": "success",
-                                    "data": [{
-                                        "type": messages[0].get("type", "unknown"),
-                                        "message": messages[0].get("text", ""),
-                                        "url": current_url,
-                                        "title": title
-                                    }],
-                                    "count": 1
-                                }
-                            else:
-                                result = {
-                                    "status": "success",
-                                    "data": [{
-                                        "status": "success" if result_info.get("hasSuccessMessage") else "error",
-                                        "url": current_url,
-                                        "title": title,
-                                        "note": "Form result detected but message text not extracted"
-                                    }],
-                                    "count": 1
-                                }
-                        else:
-                            # No specific message, but check URL change
-                            if "signup" not in current_url.lower() and "register" not in current_url.lower():
-                                result = {
-                                    "status": "success",
-                                    "data": [{
-                                        "status": "success",
-                                        "url": current_url,
-                                        "title": title,
-                                        "note": "Form submitted successfully - URL changed"
-                                    }],
-                                    "count": 1
-                                }
-                            else:
-                                # Try to extract page content
-                                result = await browser_agent.extract({
-                                    "status": "body",
-                                    "message": "[role='alert'], .message, .notification, .alert, h1, h2",
-                                    "url": "a[href]"
-                                }, limit)
+                        # Extract location from instruction if possible
+                        import re
+                        location_match = re.search(r'(?:in|near|at)\s+([A-Za-z\s]+)', instruction, re.IGNORECASE)
+                        location = location_match.group(1).strip() if location_match else "HSR"
+                        
+                        # Map location names to coordinates (add more as needed)
+                        location_coords = {
+                            "hsr": (12.9116, 77.6446),
+                            "indiranagar": (12.9784, 77.6408),
+                            "koramangala": (12.9352, 77.6245),
+                            "whitefield": (12.9698, 77.7499),
+                            "bangalore": (12.9716, 77.5946),
+                            "bengaluru": (12.9716, 77.5946),
+                        }
+                        
+                        loc_lower = location.lower()
+                        lat, lng = location_coords.get(loc_lower, (12.9250, 77.6400))  # Default to HSR
+                        
+                        # Extract query from instruction
+                        query = instruction
+                        # Try to extract just the main query part
+                        for phrase in ["find", "search for", "show me", "get me", "on google maps"]:
+                            if phrase in query.lower():
+                                query = query.lower().split(phrase, 1)[-1].strip()
+                                break
+                        
+                        # Use the specialized Maps search
+                        result = await browser_agent.search_google_maps(query, limit=limit or 10, lat=lat, lng=lng)
+                        
+                        # If Maps search was successful, format result to match expected structure
+                        if result.get("status") == "success":
+                            # Convert address field to location for consistency, and ensure all fields are present
+                            for item in result.get("data", []):
+                                # Map address to location for UI consistency
+                                if "address" in item and "location" not in item:
+                                    item["location"] = item.pop("address")
+                                elif "address" in item:
+                                    item["location"] = item["address"]
+                                
+                                # Ensure rating is a number if present
+                                if "rating" in item and item["rating"]:
+                                    try:
+                                        item["rating"] = float(item["rating"])
+                                    except:
+                                        pass
+                                
+                                # Ensure reviews is a number if present
+                                if "reviews" in item and item["reviews"]:
+                                    try:
+                                        item["reviews"] = int(item["reviews"])
+                                    except:
+                                        pass
+                            
+                            result["count"] = len(result.get("data", []))
+                            print(f"[EXECUTOR] Google Maps extraction: {result['count']} results with fields: {list(result['data'][0].keys()) if result['data'] else []}")
+                        
+                        # Continue with normal post-processing
                     else:
-                        result = await browser_agent.extract(schema, limit)
+                        # For form submissions, if no schema provided, extract form result
+                        if intent_info.get("intent") == "form_fill" and (not schema or len(schema) == 0):
+                            # Extract form submission result
+                            result_info = await browser_agent._detect_form_result()
+                            current_url = browser_agent.page.url if browser_agent.page else ""
+                            title = ""
+                            if browser_agent.page:
+                                try:
+                                    title = await browser_agent.page.title()
+                                except:
+                                    title = ""
+                            
+                            # Build extraction schema based on what's available
+                            if result_info.get("hasSuccessMessage") or result_info.get("hasErrorMessage"):
+                                # Extract messages
+                                messages = result_info.get("messages", [])
+                                if messages:
+                                    result = {
+                                        "status": "success",
+                                        "data": [{
+                                            "type": messages[0].get("type", "unknown"),
+                                            "message": messages[0].get("text", ""),
+                                            "url": current_url,
+                                            "title": title
+                                        }],
+                                        "count": 1
+                                    }
+                                else:
+                                    result = {
+                                        "status": "success",
+                                        "data": [{
+                                            "status": "success" if result_info.get("hasSuccessMessage") else "error",
+                                            "url": current_url,
+                                            "title": title,
+                                            "note": "Form result detected but message text not extracted"
+                                        }],
+                                        "count": 1
+                                    }
+                            else:
+                                # No specific message, but check URL change
+                                if "signup" not in current_url.lower() and "register" not in current_url.lower():
+                                    result = {
+                                        "status": "success",
+                                        "data": [{
+                                            "status": "success",
+                                            "url": current_url,
+                                            "title": title,
+                                            "note": "Form submitted successfully - URL changed"
+                                        }],
+                                        "count": 1
+                                    }
+                                else:
+                                    # Try to extract page content
+                                    result = await browser_agent.extract({
+                                        "status": "body",
+                                        "message": "[role='alert'], .message, .notification, .alert, h1, h2",
+                                        "url": "a[href]"
+                                    }, limit)
+                        else:
+                            result = await browser_agent.extract(schema, limit)
                     
                     # Log extraction result for debugging
                     print(f"Extraction result: status={result.get('status')}, count={result.get('count')}, data_length={len(result.get('data', []))}")
