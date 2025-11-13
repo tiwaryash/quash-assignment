@@ -1,9 +1,15 @@
-from openai import OpenAI
 from app.core.config import settings
+from app.core.llm_provider import get_llm_provider
+from app.core.logger import logger
 from app.services.intent_classifier import classify_intent
 import json
 
-client = OpenAI(api_key=settings.openai_api_key)
+# Initialize LLM provider
+try:
+    llm_provider = get_llm_provider()
+except Exception as e:
+    logger.error(f"Failed to initialize LLM provider: {e}")
+    llm_provider = None
 
 SYSTEM_PROMPT = """You are an intelligent browser automation planner. Convert user instructions into a JSON object with an "actions" array.
 
@@ -62,8 +68,10 @@ Return ONLY valid JSON object with "actions" key containing the array, no markdo
 
 async def create_action_plan(instruction: str) -> list[dict]:
     """Convert natural language instruction to a JSON action plan using intent classification."""
-    if not settings.openai_api_key:
-        raise ValueError("OpenAI API key not configured. Please set OPENAI_API_KEY in .env file")
+    if not llm_provider:
+        raise ValueError("LLM provider not configured. Please set API keys in .env file")
+    
+    logger.info(f"Creating action plan for instruction: {instruction[:100]}...")
     
     # Classify intent and extract context
     intent_info = classify_intent(instruction)
@@ -191,8 +199,7 @@ async def create_action_plan(instruction: str) -> list[dict]:
     enhanced_instruction = f"{instruction}\n\nContext:\n" + "\n".join(f"- {part}" for part in context_parts)
     
     try:
-        response = client.chat.completions.create(
-            model=settings.openai_model,
+        result = await llm_provider.chat_completion(
             messages=[
                 {"role": "system", "content": SYSTEM_PROMPT},
                 {"role": "user", "content": enhanced_instruction}
@@ -201,8 +208,8 @@ async def create_action_plan(instruction: str) -> list[dict]:
             response_format={"type": "json_object"}
         )
         
-        result = response.choices[0].message.content
         parsed = json.loads(result)
+        logger.debug(f"LLM response parsed successfully")
         
         # Handle both {"actions": [...]} and [...] formats
         if isinstance(parsed, dict) and "actions" in parsed:
@@ -216,9 +223,10 @@ async def create_action_plan(instruction: str) -> list[dict]:
         for action in actions:
             action["_intent"] = intent_info
         
+        logger.info(f"Created action plan with {len(actions)} actions")
         return actions
             
     except Exception as e:
-        print(f"Error creating plan: {e}")
+        logger.error(f"Error creating plan: {e}")
         return []
 
