@@ -777,8 +777,8 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                                         
                                 filtered = filter_by_price(extracted_data, max_price=filters["price_max"])
                                 if filtered:
-                                    # Use requested_limit (user's "top 3") instead of extraction limit
-                                    top_results = get_top_results(filtered, requested_limit or 3)
+                                    # Use requested_limit (user's "top N") or None for all results
+                                    top_results = get_top_results(filtered, requested_limit)
                                     # CRITICAL: Replace the data array completely, don't modify in place
                                     result["data"] = top_results.copy() if hasattr(top_results, 'copy') else list(top_results)
                                     result["count"] = len(result["data"])
@@ -796,7 +796,10 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                                             items_with_prices, 
                                             key=lambda x: float(x.get('price', 0))
                                         )
-                                        closest = sorted_by_price[:requested_limit or 3]
+                                        if requested_limit is not None:
+                                            closest = sorted_by_price[:requested_limit]
+                                        else:
+                                            closest = sorted_by_price
                                         result["data"] = closest
                                         result["count"] = len(closest)
                                         result["filtered"] = True
@@ -808,15 +811,15 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                             elif filters.get("price_min"):
                                 filtered = filter_by_price(extracted_data, min_price=filters["price_min"])
                                 if filtered:
-                                    top_results = get_top_results(filtered, requested_limit or 3)
+                                    top_results = get_top_results(filtered, requested_limit)
                                     result["data"] = top_results
                                     result["count"] = len(top_results)
                                 else:
                                     result["data"] = []
                                     result["count"] = 0
                             else:
-                                # Just get top results by rating - use requested_limit
-                                top_results = get_top_results(extracted_data, requested_limit or 3)
+                                # Just get top results by rating - use requested_limit (None means all results)
+                                top_results = get_top_results(extracted_data, requested_limit)
                                 result["data"] = top_results
                                 result["count"] = len(top_results)
                             
@@ -827,7 +830,10 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                                     if item.get("rating") and item["rating"] >= filters["rating_min"]
                                 ]
                                 if filtered_by_rating:
-                                    result["data"] = filtered_by_rating[:requested_limit or 3]
+                                    if requested_limit is not None:
+                                        result["data"] = filtered_by_rating[:requested_limit]
+                                    else:
+                                        result["data"] = filtered_by_rating
                                     result["count"] = len(result["data"])
                         
                         elif intent_info.get("intent") == "local_discovery":
@@ -838,8 +844,11 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                                     key=lambda x: x.get("rating") or 0,
                                     reverse=True
                                 )
-                                # Use requested_limit (user's "top 3") instead of extraction limit
-                                result["data"] = sorted_by_rating[:requested_limit or 3]
+                                # Use requested_limit (None means all results)
+                                if requested_limit is not None:
+                                    result["data"] = sorted_by_rating[:requested_limit]
+                                else:
+                                    result["data"] = sorted_by_rating
                                 result["count"] = len(result["data"])
                     
                 else:

@@ -89,10 +89,12 @@ def sort_results(results: list, sort_by: str = 'rating') -> list:
         return sorted(results, key=lambda x: x.get('price') or float('inf'))
     return results
 
-def get_top_results(results: list, limit: int = 3) -> list:
-    """Get top N results sorted by rating."""
+def get_top_results(results: list, limit: int = None) -> list:
+    """Get top N results sorted by rating. If limit is None, returns all results."""
     # Filter out items with no name
     valid_results = [r for r in results if r.get('name') or r.get('title')]
     sorted_results = sort_results(valid_results, 'rating')
+    if limit is None:
+        return sorted_results
     return sorted_results[:limit]
 
