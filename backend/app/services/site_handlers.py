@@ -428,7 +428,7 @@ class SwiggyHandler:
     """Handler for Swiggy-specific operations with anti-detection measures."""
     
     @staticmethod
-    async def search(page: Page, context: BrowserContext, query: str, location: str = "HSR Layout Bangalore", limit: int = 5, websocket=None, session_id=None) -> Dict:
+    async def search(page: Page, context: BrowserContext, query: str, location: str = "HSR Layout Bangalore", limit: int = 5, websocket=None, session_id=None, total_steps=7, plan=None) -> Dict:
         """
         Search Swiggy for restaurants matching query at location and extract results.
         Swiggy requires special handling with stealth mode and two-step search activation.
@@ -446,14 +446,30 @@ class SwiggyHandler:
             
             # Navigate to Swiggy homepage
             try:
+                # Find navigate action in plan (step 1)
+                navigate_action = None
+                if plan:
+                    for action in plan:
+                        if action.get("action") == "navigate" and "swiggy" in str(action.get("url", "")).lower():
+                            navigate_action = action
+                            break
+                
                 if websocket:
+                    step_num = 1
+                    if plan:
+                        # Find the index of navigate action in plan
+                        for idx, action in enumerate(plan):
+                            if action.get("action") == "navigate" and "swiggy" in str(action.get("url", "")).lower():
+                                step_num = idx + 1
+                                break
+                    
                     await websocket.send_json({
                         "type": "action_status",
                         "action": "navigate",
                         "status": "executing",
-                        "step": 1,
-                        "total": 7,
-                        "details": {"action": "navigate", "url": base_url, "description": "Navigate to Swiggy homepage"}
+                        "step": step_num,
+                        "total": total_steps,
+                        "details": navigate_action if navigate_action else {"action": "navigate", "url": base_url, "description": "Navigate to Swiggy homepage"}
                     })
                 
                 print(f"\n[1/7] Navigating to Swiggy homepage: {base_url}")
@@ -462,38 +478,67 @@ class SwiggyHandler:
                 print(f"✓ Page loaded: {page.url}")
                 
                 if websocket:
+                    step_num = 1
+                    if plan:
+                        for idx, action in enumerate(plan):
+                            if action.get("action") == "navigate" and "swiggy" in str(action.get("url", "")).lower():
+                                step_num = idx + 1
+                                break
+                    
                     await websocket.send_json({
                         "type": "action_status",
                         "action": "navigate",
                         "status": "completed",
-                        "step": 1,
-                        "total": 7,
-                        "details": {"action": "navigate", "url": base_url},
+                        "step": step_num,
+                        "total": total_steps,
+                        "details": navigate_action if navigate_action else {"action": "navigate", "url": base_url},
                         "result": {"status": "success", "url": page.url}
                     })
             except Exception as e:
                 print(f"✗ Failed to load Swiggy: {e}")
                 if websocket:
+                    step_num = 1
+                    if plan:
+                        for idx, action in enumerate(plan):
+                            if action.get("action") == "navigate" and "swiggy" in str(action.get("url", "")).lower():
+                                step_num = idx + 1
+                                break
+                    
                     await websocket.send_json({
                         "type": "action_status",
                         "action": "navigate",
                         "status": "error",
-                        "step": 1,
-                        "total": 7,
-                        "details": {"action": "navigate", "url": base_url},
+                        "step": step_num,
+                        "total": total_steps,
+                        "details": navigate_action if navigate_action else {"action": "navigate", "url": base_url},
                         "result": {"status": "error", "message": str(e)}
                     })
                 return {"status": "error", "message": f"Failed to load Swiggy: {str(e)}"}
             
             # STEP 1: Find and fill the LOCATION input (left box)
+            # Find type action for location in plan
+            type_location_action = None
+            if plan:
+                for action in plan:
+                    if action.get("action") == "type" and location.lower() in str(action.get("text", "")).lower():
+                        type_location_action = action
+                        break
+            
             if websocket:
+                step_num = 2
+                if plan:
+                    for idx, action in enumerate(plan):
+                        if action.get("action") == "type" and location.lower() in str(action.get("text", "")).lower():
+                            step_num = idx + 1
+                            break
+                
                 await websocket.send_json({
                     "type": "action_status",
                     "action": "type",
                     "status": "executing",
-                    "step": 2,
-                    "total": 7,
-                    "details": {"action": "type", "selector": "input[type='text']", "text": location, "description": f"Type location: {location}"}
+                    "step": step_num,
+                    "total": total_steps,
+                    "details": type_location_action if type_location_action else {"action": "type", "selector": "input[type='text']", "text": location, "description": f"Type location: {location}"}
                 })
             
             print(f"\n[2/7] Setting location: '{location}'")
@@ -598,22 +643,40 @@ class SwiggyHandler:
                                     print(f"  ✓ Found location suggestion: '{suggestion_text[:60] if suggestion_text else 'N/A'}'")
                                     
                                     if websocket:
+                                        step_num = 2
+                                        if plan:
+                                            for idx, action in enumerate(plan):
+                                                if action.get("action") == "type" and location.lower() in str(action.get("text", "")).lower():
+                                                    step_num = idx + 1
+                                                    break
+                                        
                                         await websocket.send_json({
                                             "type": "action_status",
                                             "action": "type",
                                             "status": "completed",
-                                            "step": 2,
-                                            "total": 7,
-                                            "details": {"action": "type", "text": location},
+                                            "step": step_num,
+                                            "total": total_steps,
+                                            "details": type_location_action if type_location_action else {"action": "type", "text": location},
                                             "result": {"status": "success"}
                                         })
+                                        
+                                        # Find click action for location suggestion in plan
+                                        click_location_action = None
+                                        step_num_click = 3
+                                        if plan:
+                                            for idx, action in enumerate(plan):
+                                                if action.get("action") == "click" and ("location" in str(action.get("selector", "")).lower() or "suggestion" in str(action.get("selector", "")).lower()):
+                                                    click_location_action = action
+                                                    step_num_click = idx + 1
+                                                    break
+                                        
                                         await websocket.send_json({
                                             "type": "action_status",
                                             "action": "click",
                                             "status": "executing",
-                                            "step": 3,
-                                            "total": 7,
-                                            "details": {"action": "click", "selector": "location suggestion", "description": "Click location suggestion"}
+                                            "step": step_num_click,
+                                            "total": total_steps,
+                                            "details": click_location_action if click_location_action else {"action": "click", "selector": "location suggestion", "description": "Click location suggestion"}
                                         })
                                     
                                     print(f"  Clicking location suggestion...")
@@ -622,13 +685,20 @@ class SwiggyHandler:
                                     print(f"  ✓ Location set successfully")
                                     
                                     if websocket:
+                                        step_num = 3
+                                        if plan:
+                                            for idx, action in enumerate(plan):
+                                                if action.get("action") == "click" and ("location" in str(action.get("selector", "")).lower() or "suggestion" in str(action.get("selector", "")).lower()):
+                                                    step_num = idx + 1
+                                                    break
+                                        
                                         await websocket.send_json({
                                             "type": "action_status",
                                             "action": "click",
                                             "status": "completed",
-                                            "step": 3,
-                                            "total": 7,
-                                            "details": {"action": "click", "selector": "location suggestion"},
+                                            "step": step_num,
+                                            "total": total_steps,
+                                            "details": click_location_action if 'click_location_action' in locals() and click_location_action else {"action": "click", "selector": "location suggestion"},
                                             "result": {"status": "success"}
                                         })
                                 else:
@@ -660,14 +730,29 @@ class SwiggyHandler:
                     pass
             
             # STEP 2: Find and fill the FOOD SEARCH input (right box)
-            if websocket:
+            # Find click action for search div in plan (if exists)
+            click_search_action = None
+            if plan:
+                for action in plan:
+                    if action.get("action") == "click" and ("search" in str(action.get("selector", "")).lower() or "restaurant" in str(action.get("selector", "")).lower()):
+                        click_search_action = action
+                        break
+            
+            if websocket and click_search_action:
+                step_num = 4
+                if plan:
+                    for idx, action in enumerate(plan):
+                        if action == click_search_action:
+                            step_num = idx + 1
+                            break
+                
                 await websocket.send_json({
                     "type": "action_status",
                     "action": "click",
                     "status": "executing",
-                    "step": 4,
-                    "total": 7,
-                    "details": {"action": "click", "selector": "search div", "description": "Open food search input"}
+                    "step": step_num,
+                    "total": total_steps,
+                    "details": click_search_action
                 })
             
             print(f"\n[4/7] Opening food search...")
@@ -695,23 +780,47 @@ class SwiggyHandler:
                 await asyncio.sleep(2)  # Wait for search input to appear
                 print(f"  ✓ Search input should be visible now")
                 
-                if websocket:
+                if websocket and click_search_action:
+                    step_num = 4
+                    if plan:
+                        for idx, action in enumerate(plan):
+                            if action == click_search_action:
+                                step_num = idx + 1
+                                break
+                    
                     await websocket.send_json({
                         "type": "action_status",
                         "action": "click",
                         "status": "completed",
-                        "step": 4,
-                        "total": 7,
-                        "details": {"action": "click", "selector": "search div"},
+                        "step": step_num,
+                        "total": total_steps,
+                        "details": click_search_action,
                         "result": {"status": "success"}
                     })
+                
+                # Find type action for food query in plan
+                type_food_action = None
+                if plan:
+                    for action in plan:
+                        if action.get("action") == "type" and query.lower() in str(action.get("text", "")).lower() and action != type_location_action:
+                            type_food_action = action
+                            break
+                
+                if websocket:
+                    step_num = 5
+                    if plan and type_food_action:
+                        for idx, action in enumerate(plan):
+                            if action == type_food_action:
+                                step_num = idx + 1
+                                break
+                    
                     await websocket.send_json({
                         "type": "action_status",
                         "action": "type",
                         "status": "executing",
-                        "step": 5,
-                        "total": 7,
-                        "details": {"action": "type", "selector": "search input", "text": query, "description": f"Search for: {query}"}
+                        "step": step_num,
+                        "total": total_steps,
+                        "details": type_food_action if type_food_action else {"action": "type", "selector": "search input", "text": query, "description": f"Search for: {query}"}
                     })
             
             # NOW get the actual input that appears after clicking
@@ -792,22 +901,40 @@ class SwiggyHandler:
             print(f"  ✓ Search submitted")
             
             if websocket:
+                step_num = 5
+                if plan and type_food_action:
+                    for idx, action in enumerate(plan):
+                        if action == type_food_action:
+                            step_num = idx + 1
+                            break
+                
                 await websocket.send_json({
                     "type": "action_status",
                     "action": "type",
                     "status": "completed",
-                    "step": 5,
-                    "total": 7,
-                    "details": {"action": "type", "text": query},
+                    "step": step_num,
+                    "total": total_steps,
+                    "details": type_food_action if type_food_action else {"action": "type", "text": query},
                     "result": {"status": "success"}
                 })
+                
+                # Find click action for Restaurants button in plan
+                click_restaurants_action = None
+                step_num_click = 6
+                if plan:
+                    for idx, action in enumerate(plan):
+                        if action.get("action") == "click" and "restaurant" in str(action.get("selector", "")).lower():
+                            click_restaurants_action = action
+                            step_num_click = idx + 1
+                            break
+                
                 await websocket.send_json({
                     "type": "action_status",
                     "action": "click",
                     "status": "executing",
-                    "step": 6,
-                    "total": 7,
-                    "details": {"action": "click", "selector": "Restaurants button", "description": "Filter by Restaurants"}
+                    "step": step_num_click,
+                    "total": total_steps,
+                    "details": click_restaurants_action if click_restaurants_action else {"action": "click", "selector": "Restaurants button", "description": "Filter by Restaurants"}
                 })
             
             # Wait for results to load - Swiggy uses dynamic loading
@@ -860,42 +987,73 @@ class SwiggyHandler:
                 print(f"  ✓ Restaurants filter applied")
                 
                 if websocket:
+                    step_num = 6
+                    if plan and click_restaurants_action:
+                        for idx, action in enumerate(plan):
+                            if action == click_restaurants_action:
+                                step_num = idx + 1
+                                break
+                    
                     await websocket.send_json({
                         "type": "action_status",
                         "action": "click",
                         "status": "completed",
-                        "step": 6,
-                        "total": 7,
-                        "details": {"action": "click", "selector": "Restaurants button"},
+                        "step": step_num,
+                        "total": total_steps,
+                        "details": click_restaurants_action if click_restaurants_action else {"action": "click", "selector": "Restaurants button"},
                         "result": {"status": "success"}
                     })
+                    
+                    # Find extract action in plan
+                    extract_action = None
+                    if plan:
+                        for action in plan:
+                            if action.get("action") == "extract":
+                                extract_action = action
+                                break
+                    
                     await websocket.send_json({
                         "type": "action_status",
                         "action": "extract",
                         "status": "executing",
-                        "step": 7,
-                        "total": 7,
-                        "details": {"action": "extract", "limit": limit, "description": "Extract restaurant data"}
+                        "step": total_steps,
+                        "total": total_steps,
+                        "details": extract_action if extract_action else {"action": "extract", "limit": limit, "description": "Extract restaurant data"}
                     })
             else:
                 print(f"  ⚠️ Restaurants button not found, continuing anyway...")
                 if websocket:
+                    step_num = 6
+                    if plan and click_restaurants_action:
+                        for idx, action in enumerate(plan):
+                            if action == click_restaurants_action:
+                                step_num = idx + 1
+                                break
+                    
                     await websocket.send_json({
                         "type": "action_status",
                         "action": "click",
                         "status": "completed",
-                        "step": 6,
-                        "total": 7,
-                        "details": {"action": "click", "selector": "Restaurants button"},
+                        "step": step_num,
+                        "total": total_steps,
+                        "details": click_restaurants_action if click_restaurants_action else {"action": "click", "selector": "Restaurants button"},
                         "result": {"status": "success", "note": "Button not found, continuing"}
                     })
+                    
+                    extract_action = None
+                    if plan:
+                        for action in plan:
+                            if action.get("action") == "extract":
+                                extract_action = action
+                                break
+                    
                     await websocket.send_json({
                         "type": "action_status",
                         "action": "extract",
                         "status": "executing",
-                        "step": 7,
-                        "total": 7,
-                        "details": {"action": "extract", "limit": limit}
+                        "step": total_steps,
+                        "total": total_steps,
+                        "details": extract_action if extract_action else {"action": "extract", "limit": limit}
                     })
                 
                 # Verify we're on restaurants view (not dishes)
@@ -1298,14 +1456,21 @@ class SwiggyHandler:
             
             # Send extract action with results
             if websocket:
+                extract_action = None
+                if plan:
+                    for action in plan:
+                        if action.get("action") == "extract":
+                            extract_action = action
+                            break
+                
                 await websocket.send_json({
                     "type": "action_status",
                     "action": "extract",
                     "status": "completed",
-                    "step": 7,
-                    "total": 7,
+                    "step": total_steps,
+                    "total": total_steps,
                     "result": result,
-                    "details": {"action": "extract", "limit": limit}
+                    "details": extract_action if extract_action else {"action": "extract", "limit": limit}
                 })
             
             return result

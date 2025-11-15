@@ -353,7 +353,7 @@ class BrowserAgent:
         
         return await GoogleMapsHandler.search(self.page, self.context, query, limit, lat, lng)
     
-    async def search_swiggy(self, query: str, location: str = "HSR Layout Bangalore", limit: int = 5, websocket=None, session_id=None) -> Dict:
+    async def search_swiggy(self, query: str, location: str = "HSR Layout Bangalore", limit: int = 5, websocket=None, session_id=None, plan=None) -> Dict:
         """
         Search Swiggy for restaurants matching query at location and extract results.
         Uses stealth mode to bypass anti-bot detection.
@@ -370,7 +370,8 @@ class BrowserAgent:
             await self.start(use_stealth=True)
             self._stealth_enabled = True
         
-        return await SwiggyHandler.search(self.page, self.context, query, location, limit, websocket=websocket, session_id=session_id)
+        total_steps = len(plan) if plan else 7
+        return await SwiggyHandler.search(self.page, self.context, query, location, limit, websocket=websocket, session_id=session_id, total_steps=total_steps, plan=plan)
     
 
     async def click(self, selector: str) -> dict:
