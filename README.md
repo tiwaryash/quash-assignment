@@ -613,20 +613,21 @@ All bonus features from the assignment are fully implemented:
 
 ### Available Documentation
 
-1. **[Technical Write-Up](TECHNICAL_WRITEUP.md)** (Comprehensive)
-   - Architecture deep dive
+1. **[Technical Write-Up](TECHNICAL_WRITEUP.md)** (Required Deliverable)
+   - Complete architecture overview
    - Design decisions and trade-offs
    - Failure handling strategies
    - Performance characteristics
    - Security considerations
-   - Future enhancements
+   - Next steps and enhancements
 
-2. **[API Documentation](http://localhost:8000/docs)** (When Running)
+
+3. **[API Documentation](http://localhost:8000/docs)** (When Running)
    - FastAPI auto-generated docs
    - WebSocket protocol
    - Request/response schemas
 
-3. **[Code Documentation](backend/app/)**
+4. **[Code Documentation](backend/app/)**
    - Inline docstrings
    - Type hints
    - Module-level documentation
@@ -740,10 +741,11 @@ quash_assignment/
 
 | Item | Location | Status |
 |------|----------|--------|
-| **1. Codebase** | This repository | **COMPLETE** |
-| **2. README** | This file | **COMPLETE** |
-| **3. Technical Write-Up** | [TECHNICAL_WRITEUP.md](TECHNICAL_WRITEUP.md) | **COMPLETE** |
-| **4. Demo Video** | (To be recorded) | **PENDING** |
+| **1. Codebase** | This repository | ✅ **COMPLETE** |
+| **2. README** | This file | ✅ **COMPLETE** |
+| **3. Technical Write-Up** | [TECHNICAL_WRITEUP.md](TECHNICAL_WRITEUP.md) | ✅ **COMPLETE** |
+| **4. Reasoning/Plan Logs** | [REASONING_AND_FUTURE_PROSPECTS.md](REASONING_AND_FUTURE_PROSPECTS.md) | ✅ **COMPLETE** |
+| **5. Demo Video** | (To be recorded) | **PENDING** |
 
 ---
 
