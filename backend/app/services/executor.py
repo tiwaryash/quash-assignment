@@ -968,8 +968,41 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                     
                     # Only for product search, check if we should ask for filter refinement
                     if intent_info.get("intent") == "product_search":
-                        # Extract available filter options from results
+                        # Step 1: Extract basic filter options from product names/URLs
                         filter_options = extract_filter_options(result["data"])
+                        
+                        # Step 2: Dynamically extract variants from product detail pages
+                        await websocket.send_json({
+                            "type": "status",
+                            "message": "Scanning product pages for available variants..."
+                        })
+                        
+                        # Get product URLs
+                        product_urls = [
+                            item.get('url') or item.get('link')
+                            for item in result["data"]
+                            if item.get('url') or item.get('link')
+                        ]
+                        
+                        # Extract variants from product pages (visit up to 5 pages)
+                        if product_urls and browser_agent.page:
+                            from app.services.filter_results import extract_variants_from_product_pages
+                            page_variants = await extract_variants_from_product_pages(
+                                browser_agent, 
+                                product_urls, 
+                                max_pages=5
+                            )
+                            
+                            # Merge page variants with name-based filters
+                            for key in filter_options:
+                                if key in page_variants:
+                                    # Combine both sets (remove duplicates)
+                                    filter_options[key] = list(set(filter_options[key] + page_variants[key]))
+                            
+                            # Also add any new keys from page variants
+                            for key in page_variants:
+                                if key not in filter_options:
+                                    filter_options[key] = page_variants[key]
                         
                         # Check if we have multiple variants to offer
                         if filter_options:

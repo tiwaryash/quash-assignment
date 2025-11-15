@@ -270,10 +270,27 @@ class ConversationManager:
                     options = filter_def.get("options", [])
                     
                     # Check if any option is mentioned in response
+                    # Try exact match first, then partial match
                     for option in options:
-                        if option.lower() in response_lower:
+                        option_lower = option.lower()
+                        # Exact match
+                        if option_lower == response_lower or option_lower in response_lower:
                             filter_selections[field_name] = option
                             break
+                        # Partial match (e.g., "silver" matches "space gray silver")
+                        elif option_lower in response_lower or response_lower in option_lower:
+                            filter_selections[field_name] = option
+                            break
+                    
+                    # Also check for multi-word colors (e.g., "space gray" in "256GB space gray")
+                    if field_name == "colors" and not filter_selections.get(field_name):
+                        for option in options:
+                            option_words = option.lower().split()
+                            if len(option_words) > 1:
+                                # Check if all words of the color are in response
+                                if all(word in response_lower for word in option_words):
+                                    filter_selections[field_name] = option
+                                    break
                 
                 return {
                     "filter_selections": filter_selections,

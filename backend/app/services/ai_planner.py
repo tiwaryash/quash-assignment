@@ -59,11 +59,14 @@ Transform user instructions into a JSON action plan that:
    - Use stable selectors: id > name > placeholder > class
    - **IMPORTANT**: Generate an optimized, site-specific search query in the "text" field
    - Query should be concise, precise, and tailored to the target site's search algorithm
+   - **DO NOT ADD INFORMATION**: Only use what the user mentioned, remove filler words
    - Examples:
      * User: "Find me the cheapest MacBook Air 13 inch under 1 lakh on Flipkart"
-       Query for Flipkart: "MacBook Air 13 inch M2"
+       Query for Flipkart: "MacBook Air 13 inch" (keep size user mentioned, remove filler words)
+     * User: "Find MacBook Air"
+       Query for Flipkart: "MacBook Air" (DON'T add "M2" or "13 inch" - user didn't mention them)
      * User: "Best pizza places in Indiranagar"
-       Query for Google Maps: "pizza restaurants Indiranagar Bangalore"
+       Query for Google Maps: "pizza restaurants Indiranagar Bangalore" (add city for Maps only)
 
 3. click
    {"action": "click", "selector": "button[type='submit']"}
@@ -104,16 +107,18 @@ Transform user instructions into a JSON action plan that:
 
 === CRITICAL PLANNING PRINCIPLES ===
 
-1. OPTIMIZED SEARCH QUERIES (NEW FEATURE)
-   - For each site, generate a tailored search query that maximizes result quality
-   - Consider site-specific search behavior and best practices
+1. OPTIMIZED SEARCH QUERIES (FORMAT ONLY - DON'T ADD INFORMATION)
+   - **CRITICAL**: Only optimize the FORMAT of the query, DO NOT add information that wasn't in the user's query
+   - Extract ONLY what the user mentioned - don't add model numbers, years, or variants unless explicitly stated
+   - Remove unnecessary words like "find", "search for", "best", "cheapest", "under X price"
+   - Keep ONLY what user mentioned: brand, product name, size (if mentioned), location (if mentioned)
    - Examples:
-     * Flipkart: "MacBook Air M2 13 inch" (include model, variant details)
-     * Amazon: "MacBook Air 13-inch 2023 M2" (include year, specific model)
-     * Google Maps: "pizza restaurants Indiranagar Bangalore" (include type + area + city)
-   - Extract the core product/place name and relevant details from user query
-   - Remove unnecessary words like "find", "search for", "best", "cheapest"
-   - Keep essential details: brand, model, size, location
+     * User: "Find MacBook Air" → Query: "MacBook Air" 
+     * User: "MacBook Air 13 inch" → Query: "MacBook Air 13 inch" (keep the size user mentioned)
+     * User: "iPhone 15" → Query: "iPhone 15" 
+     * User: "pizza places Indiranagar" → Query: "pizza restaurants Indiranagar Bangalore" (add city for Maps)
+   - For Google Maps: You CAN add city name if only neighborhood is mentioned (helps with search)
+   - For e-commerce: Keep it simple - just the product name user mentioned
    - Each site should get its own optimized query in the "text" field of type action
 
 2. ROBUST WAITS & SELECTORS
@@ -216,13 +221,15 @@ PRODUCT SEARCH:
 6. scroll → (optional, to load more)
 7. extract → with schema and limit (20+ for filtering)
 
-**Query Optimization Examples:**
+**Query Optimization Examples (FORMAT ONLY - NO ADDITIONS):**
 - User: "Find MacBook Air under 1 lakh"
-  * Flipkart query: "MacBook Air M2 13"
-  * Amazon query: "MacBook Air 13 inch 2023"
+  * Flipkart query: "MacBook Air" (DON'T add "M2" or "13" - user didn't mention them)
+  * Amazon query: "MacBook Air" (same - keep it simple)
+- User: "MacBook Air 13 inch"
+  * Flipkart query: "MacBook Air 13 inch" (keep size user mentioned)
 - User: "Gaming laptops with RTX 4060"
-  * Flipkart query: "gaming laptop RTX 4060"
-  * Amazon query: "gaming laptop NVIDIA RTX 4060"
+  * Flipkart query: "gaming laptop RTX 4060" (keep what user mentioned)
+  * Amazon query: "gaming laptop RTX 4060" (same - don't add "NVIDIA" unless user said it)
 
 FORM FILLING:
 1. navigate → form page URL
@@ -278,23 +285,27 @@ CRITICAL:
 - Use real URLs, not placeholders
 - Include proper waits before extraction
 - Extract MORE items than requested for filtering
-- **GENERATE OPTIMIZED SEARCH QUERIES** - Don't just copy the user's query!
-  * Extract key product/place details (brand, model, specs, location)
+- **GENERATE OPTIMIZED SEARCH QUERIES** - Format optimization ONLY, don't add information!
+  * Extract ONLY what user mentioned (brand, product name, size if mentioned, location if mentioned)
   * Remove filler words ("find", "show me", "best", "cheapest", "under X price")
-  * Tailor query to each site's search algorithm
+  * DO NOT add model numbers, years, variants, or specs unless user explicitly mentioned them
+  * Tailor query format to each site's search algorithm (but keep content same)
   * Example: User says "Find me cheapest MacBook Air under 1 lakh on Flipkart"
-            → Your type action should have text: "MacBook Air M2 13 inch"
-            NOT "cheapest MacBook Air under 1 lakh"
+            → Your type action should have text: "MacBook Air"
+            NOT "MacBook Air M2 13 inch" (user didn't mention M2 or 13 inch)
+            NOT "cheapest MacBook Air under 1 lakh" (remove filler words)
 
 === QUERY GENERATION GUIDELINES ===
 
 For PRODUCT SEARCH:
-- Include: Brand + Product Line + Model/Variant + Size
+- Include: ONLY what user mentioned (Brand + Product Line + Size/Variant if user said it)
 - Exclude: Price constraints, quality descriptors, action verbs
+- DO NOT ADD: Model numbers, years, storage, RAM, colors unless user explicitly mentioned them
 - Examples:
-  * "Find best iPhone 15 under 80k" → "iPhone 15 128GB"
-  * "Show me laptops with 16GB RAM" → "laptop 16GB RAM"
-  * "Gaming mouse under 3000" → "gaming mouse"
+  * "Find best iPhone 15 under 80k" → "iPhone 15" (DON'T add "128GB" - user didn't say it)
+  * "Show me laptops with 16GB RAM" → "laptop 16GB RAM" (keep RAM - user mentioned it)
+  * "Gaming mouse under 3000" → "gaming mouse" (keep gaming - user mentioned it)
+  * "MacBook Air" → "MacBook Air" (DON'T add "M2" or "13 inch")
 
 For LOCAL DISCOVERY:
 - Include: Business Type + Neighborhood + City
