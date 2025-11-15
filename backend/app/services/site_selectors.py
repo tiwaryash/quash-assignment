@@ -236,6 +236,57 @@ SITE_SELECTORS = {
             "ytd-video-renderer a[href*='/watch']",
             "#contents a[href*='/watch']"
         ]
+    },
+    "swiggy": {
+        "search_activation": [
+            "div:has-text('Search for restaurant and food')",
+            "a[href*='/search']",
+            "[class*='search']"
+        ],
+        "search_input": [
+            "input[placeholder*='Search for Dishes']",
+            "input[placeholder*='Search for restaurant']",
+            "input[type='text'][placeholder*='Search']",
+            "input[class*='search']"
+        ],
+        "search_button": [
+            "button[type='submit']",
+            "button[aria-label*='Search']"
+        ],
+        "restaurant_container": [
+            "div[data-testid='restaurant-card']",
+            "[data-testid='restaurant-card']",
+            "div[class*='restaurant-card']",
+            "div[class*='RestaurantCard']",
+            "a[class*='restaurant']"
+        ],
+        "restaurant_name": [
+            "div[class*='restaurant-name']",
+            "div[class*='RestaurantName']",
+            "h3",
+            "h2"
+        ],
+        "restaurant_rating": [
+            "div[class*='rating']",
+            "span[class*='rating']",
+            "[aria-label*='star']",
+            "div[class*='Rating']"
+        ],
+        "restaurant_cuisine": [
+            "div[class*='cuisine']",
+            "div[class*='Cuisine']",
+            "span[class*='cuisine']"
+        ],
+        "restaurant_location": [
+            "div[class*='location']",
+            "div[class*='area']",
+            "span[class*='location']"
+        ],
+        "restaurant_price": [
+            "div[class*='price']",
+            "span[class*='price']",
+            "div[class*='cost']"
+        ]
     }
 }
 

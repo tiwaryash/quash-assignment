@@ -1,6 +1,6 @@
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext, TimeoutError as PlaywrightTimeout
 from app.services.site_selectors import get_selectors_for_site, detect_site_from_url
-from app.services.site_handlers import GoogleMapsHandler, SiteExtractionHandler, YouTubeHandler, GoogleSearchHandler
+from app.services.site_handlers import GoogleMapsHandler, SiteExtractionHandler, YouTubeHandler, GoogleSearchHandler, SwiggyHandler
 from app.core.config import settings
 from app.core.retry import retry_async, RetryConfig
 from app.core.logger import logger, log_action
@@ -11,6 +11,7 @@ import random
 import string
 import urllib.parse
 from typing import List, Dict, Optional
+import re  # Import at the top of the processing block
 
 class BrowserAgent:
     def __init__(self):
@@ -128,8 +129,16 @@ class BrowserAgent:
 
     async def navigate(self, url: str) -> dict:
         """Navigate to a URL and detect the site type."""
+        # Detect if this is Swiggy - enable stealth mode
+        is_swiggy = "swiggy" in url.lower()
+        
         if not self.page:
-            await self.start()
+            await self.start(use_stealth=is_swiggy)
+        elif is_swiggy and not hasattr(self, '_stealth_enabled'):
+            # If browser already started without stealth, restart with stealth for Swiggy
+            await self.close()
+            await self.start(use_stealth=True)
+            self._stealth_enabled = True
         
         try:
             # Add https:// if no protocol specified (but not for file:// or other protocols)
@@ -343,6 +352,26 @@ class BrowserAgent:
             await self.start()
         
         return await GoogleMapsHandler.search(self.page, self.context, query, limit, lat, lng)
+    
+    async def search_swiggy(self, query: str, location: str = "HSR Layout Bangalore", limit: int = 5, websocket=None, session_id=None) -> Dict:
+        """
+        Search Swiggy for restaurants matching query at location and extract results.
+        Uses stealth mode to bypass anti-bot detection.
+        
+        Returns: {"status":"success","data":[{name, rating, cuisine, location, price, url}]}
+        """
+        # For Swiggy, always use stealth mode
+        if not self.page:
+            await self.start(use_stealth=True)
+            self._stealth_enabled = True
+        elif not hasattr(self, '_stealth_enabled') or not self._stealth_enabled:
+            # Restart with stealth mode
+            await self.close()
+            await self.start(use_stealth=True)
+            self._stealth_enabled = True
+        
+        return await SwiggyHandler.search(self.page, self.context, query, location, limit, websocket=websocket, session_id=session_id)
+    
 
     async def click(self, selector: str) -> dict:
         """Click an element by selector with automatic fallback."""
@@ -1484,7 +1513,6 @@ EXAMPLES:
             
             # Transform to list of objects if multiple fields
             if result and len(result) > 0:
-                import re  # Import at the top of the processing block
                 field_names = list(result.keys())
                 max_length = max(len(result[field]) for field in field_names) if result else 0
                 

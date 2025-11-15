@@ -20,6 +20,114 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
     plan = None  # Initialize to avoid reference errors
     
     try:
+        # EARLIEST SWIGGY DETECTION: Check before any processing
+        # This catches Swiggy even when websocket handler passes it directly (not as clarification)
+        instruction_lower_early = instruction.lower()
+        if "swiggy" in instruction_lower_early:
+            try:
+                await websocket.send_json({
+                    "type": "message",
+                    "message": "⚡ Using stealth mode for Swiggy...",
+                    "level": "info"
+                })
+                
+                # Clean up the query - remove common prefixes and "on swiggy"
+                query = instruction
+                query_lower = query.lower()
+                
+                # Remove prefixes
+                prefixes = ["find", "search for", "show me", "get me", "look for"]
+                for prefix in prefixes:
+                    if query_lower.startswith(prefix):
+                        query = query[len(prefix):].strip()
+                        query_lower = query.lower()
+                        break
+                
+                # Remove "on swiggy" or "using swiggy" suffix
+                for suffix in ["on swiggy", "using swiggy", "via swiggy", "from swiggy"]:
+                    if query_lower.endswith(suffix):
+                        query = query[:-len(suffix)].strip()
+                        break
+                
+                # If query is empty or too short, try original instruction
+                from app.api.websocket import manager
+                if not query or len(query.split()) < 2:
+                    original_instruction = manager.session_states.get(session_id, {}).get("original_instruction", instruction)
+                    query = original_instruction
+                    # Remove "on swiggy" from original too
+                    query_lower = query.lower()
+                    for suffix in ["on swiggy", "using swiggy", "via swiggy", "from swiggy"]:
+                        if query_lower.endswith(suffix):
+                            query = query[:-len(suffix)].strip()
+                            break
+                
+                # Extract location from query and clean up query
+                location_match = re.search(r'(?:in|near|at)\s+([A-Za-z\s]+)', query, re.IGNORECASE)
+                location = location_match.group(1).strip() if location_match else "HSR Layout Bangalore"
+                
+                # Remove location from query to get just the food item
+                if location_match:
+                    # Remove "in/near/at location" from query
+                    query = re.sub(r'\s*(?:in|near|at)\s+[A-Za-z\s]+', '', query, flags=re.IGNORECASE).strip()
+                    # Remove common words like "places", "restaurants", "best"
+                    query = re.sub(r'\b(best|top|good|great|places?|restaurants?)\b', '', query, flags=re.IGNORECASE).strip()
+                    query = query.strip()
+                
+                # If query is empty after cleaning, use a default
+                if not query or len(query.split()) == 0:
+                    query = "restaurants"
+                
+                # If location doesn't have city, add Bangalore as default
+                if location and "bangalore" not in location.lower() and "bengaluru" not in location.lower():
+                    location = f"{location} Bangalore"
+                
+                # Default limit
+                extraction_limit = 10
+                
+                # Use specialized Swiggy search function with stealth mode - direct call
+                result = await browser_agent.search_swiggy(
+                    query, 
+                    location=location, 
+                    limit=extraction_limit,
+                    websocket=websocket,
+                    session_id=session_id
+                )
+                
+                # Format and send result
+                if result.get("status") == "success":
+                    for item in result.get("data", []):
+                        if "rating" in item and item["rating"]:
+                            try:
+                                item["rating"] = float(item["rating"])
+                            except:
+                                pass
+                    
+                    result["count"] = len(result.get("data", []))
+                    
+                    # Send final result message
+                    await websocket.send_json({
+                        "type": "status",
+                        "message": f"Found {result['count']} restaurants"
+                    })
+                else:
+                    error_message = result.get("message", "Swiggy search failed")
+                    suggestion = result.get("suggestion", "Try using Google Maps for restaurant discovery")
+                    
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": f"{error_message}. {suggestion}"
+                    })
+            except Exception as e:
+                # Handle any errors during Swiggy search
+                error_msg = str(e)
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"Error during Swiggy search: {error_msg}"
+                })
+            
+            # Skip everything else - return early
+            return
+        
         # Store original instruction in session state (for potential retry/clarification)
         # Import here to avoid circular dependency
         from app.api.websocket import manager
@@ -94,13 +202,121 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                             conversation_manager.clear_clarification(session_id)
                             return
                 
-                # Regular clarification response
                 instruction = clarification_result["updated_instruction"]
                 conversation_manager.clear_clarification(session_id)
                 await websocket.send_json({
                     "type": "status",
                     "message": f"Got it! Processing: {instruction}"
                 })
+                
+                # IMMEDIATE SWIGGY DETECTION: Check right after clarification response
+                # This is where "swiggy" gets added to the instruction
+                if "swiggy" in instruction.lower():
+                    try:
+                        await websocket.send_json({
+                            "type": "message",
+                            "message": "⚡ Using stealth mode for Swiggy...",
+                            "level": "info"
+                        })
+                        
+                        # Use current instruction (which has "on swiggy" appended)
+                        # Clean up the query - remove common prefixes and "on swiggy"
+                        query = instruction
+                        query_lower = query.lower()
+                        
+                        # Remove prefixes
+                        prefixes = ["find", "search for", "show me", "get me", "look for"]
+                        for prefix in prefixes:
+                            if query_lower.startswith(prefix):
+                                query = query[len(prefix):].strip()
+                                query_lower = query.lower()
+                                break
+                        
+                        # Remove "on swiggy" or "using swiggy" suffix
+                        for suffix in ["on swiggy", "using swiggy", "via swiggy", "from swiggy"]:
+                            if query_lower.endswith(suffix):
+                                query = query[:-len(suffix)].strip()
+                                break
+                        
+                        # If query is empty or too short, try original instruction
+                        if not query or len(query.split()) < 2:
+                            original_instruction = manager.session_states.get(session_id, {}).get("original_instruction", instruction)
+                            query = original_instruction
+                            # Remove "on swiggy" from original too
+                            query_lower = query.lower()
+                            for suffix in ["on swiggy", "using swiggy", "via swiggy", "from swiggy"]:
+                                if query_lower.endswith(suffix):
+                                    query = query[:-len(suffix)].strip()
+                                    break
+                        
+                        # Extract location from query and clean up query
+                        location_match = re.search(r'(?:in|near|at)\s+([A-Za-z\s]+)', query, re.IGNORECASE)
+                        location = location_match.group(1).strip() if location_match else "HSR Layout Bangalore"
+                        
+                        # Remove location from query to get just the food item
+                        if location_match:
+                            # Remove "in/near/at location" from query
+                            query = re.sub(r'\s*(?:in|near|at)\s+[A-Za-z\s]+', '', query, flags=re.IGNORECASE).strip()
+                            # Remove common words like "places", "restaurants", "best"
+                            query = re.sub(r'\b(best|top|good|great|places?|restaurants?)\b', '', query, flags=re.IGNORECASE).strip()
+                            query = query.strip()
+                        
+                        # If query is empty after cleaning, use a default
+                        if not query or len(query.split()) == 0:
+                            query = "restaurants"
+                        
+                        # If location doesn't have city, add Bangalore as default
+                        if location and "bangalore" not in location.lower() and "bengaluru" not in location.lower():
+                            location = f"{location} Bangalore"
+                        
+                        # Default limit
+                        extraction_limit = 10
+                        
+                        await websocket.send_json({
+                            "type": "message",
+                            "message": f"🔍 Searching for '{query}' in {location}...",
+                            "level": "info"
+                        })
+                        
+                        # Use specialized Swiggy search function with stealth mode - direct call
+                        result = await browser_agent.search_swiggy(query, location=location, limit=extraction_limit)
+                        
+                        # Format and send result
+                        if result.get("status") == "success":
+                            for item in result.get("data", []):
+                                if "rating" in item and item["rating"]:
+                                    try:
+                                        item["rating"] = float(item["rating"])
+                                    except:
+                                        pass
+                            
+                            result["count"] = len(result.get("data", []))
+                            
+                            # Send final result
+                            await websocket.send_json({
+                                "type": "result",
+                                "data": result,
+                                "count": result["count"]
+                            })
+                        else:
+                            # Swiggy search failed
+                            error_message = result.get("message", "Swiggy search failed")
+                            suggestion = result.get("suggestion", "Try using Google Maps for restaurant discovery")
+                            
+                            await websocket.send_json({
+                                "type": "error",
+                                "message": f"{error_message}. {suggestion}"
+                            })
+                    except Exception as e:
+                        # Handle any errors during Swiggy search
+                        error_msg = str(e)
+                        await websocket.send_json({
+                            "type": "error",
+                            "message": f"Error during Swiggy search: {error_msg}"
+                        })
+                    
+                    # Skip everything else - return early
+                    return
             else:
                 await websocket.send_json({
                     "type": "error",
@@ -137,7 +353,119 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
             # Don't execute finally block - return early without cleanup
             return
         
-        # Step 1: Create plan
+        # EARLY DETECTION: Check if this is a Swiggy search BEFORE calling LLM
+        instruction_lower = instruction.lower()
+        is_swiggy_search = "swiggy" in instruction_lower
+        
+        # If Swiggy, skip LLM entirely and use direct method
+        if is_swiggy_search:
+            try:
+                await websocket.send_json({
+                    "type": "message",
+                    "message": "⚡ Using stealth mode for Swiggy...",
+                    "level": "info"
+                })
+                
+                # Use current instruction (which may have "on swiggy" appended)
+                # Clean up the query - remove common prefixes and "on swiggy"
+                query = instruction
+                query_lower = query.lower()
+                
+                # Remove prefixes
+                prefixes = ["find", "search for", "show me", "get me", "look for"]
+                for prefix in prefixes:
+                    if query_lower.startswith(prefix):
+                        query = query[len(prefix):].strip()
+                        query_lower = query.lower()
+                        break
+                
+                # Remove "on swiggy" or "using swiggy" suffix
+                for suffix in ["on swiggy", "using swiggy", "via swiggy", "from swiggy"]:
+                    if query_lower.endswith(suffix):
+                        query = query[:-len(suffix)].strip()
+                        break
+                
+                # If query is empty or too short, try original instruction
+                if not query or len(query.split()) < 2:
+                    original_instruction = manager.session_states.get(session_id, {}).get("original_instruction", instruction)
+                    query = original_instruction
+                    # Remove "on swiggy" from original too
+                    query_lower = query.lower()
+                    for suffix in ["on swiggy", "using swiggy", "via swiggy", "from swiggy"]:
+                        if query_lower.endswith(suffix):
+                            query = query[:-len(suffix)].strip()
+                            break
+                
+                # Extract location from query and clean up query
+                location_match = re.search(r'(?:in|near|at)\s+([A-Za-z\s]+)', query, re.IGNORECASE)
+                location = location_match.group(1).strip() if location_match else "HSR Layout Bangalore"
+                
+                # Remove location from query to get just the food item
+                if location_match:
+                    # Remove "in/near/at location" from query
+                    query = re.sub(r'\s*(?:in|near|at)\s+[A-Za-z\s]+', '', query, flags=re.IGNORECASE).strip()
+                    # Remove common words like "places", "restaurants", "best"
+                    query = re.sub(r'\b(best|top|good|great|places?|restaurants?)\b', '', query, flags=re.IGNORECASE).strip()
+                    query = query.strip()
+                
+                # If query is empty after cleaning, use a default
+                if not query or len(query.split()) == 0:
+                    query = "restaurants"
+                
+                # If location doesn't have city, add Bangalore as default
+                if location and "bangalore" not in location.lower() and "bengaluru" not in location.lower():
+                    location = f"{location} Bangalore"
+                
+                # Default limit
+                extraction_limit = 10
+                
+                await websocket.send_json({
+                    "type": "message",
+                    "message": f"🔍 Searching for '{query}' in {location}...",
+                    "level": "info"
+                })
+                
+                # Use specialized Swiggy search function with stealth mode - direct call
+                result = await browser_agent.search_swiggy(query, location=location, limit=extraction_limit)
+                
+                # Format and send result
+                if result.get("status") == "success":
+                    for item in result.get("data", []):
+                        if "rating" in item and item["rating"]:
+                            try:
+                                item["rating"] = float(item["rating"])
+                            except:
+                                pass
+                    
+                    result["count"] = len(result.get("data", []))
+                    
+                    # Send final result
+                    await websocket.send_json({
+                        "type": "result",
+                        "data": result,
+                        "count": result["count"]
+                    })
+                else:
+                    # Swiggy search failed
+                    error_message = result.get("message", "Swiggy search failed")
+                    suggestion = result.get("suggestion", "Try using Google Maps for restaurant discovery")
+                    
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": f"{error_message}. {suggestion}"
+                    })
+            except Exception as e:
+                # Handle any errors during Swiggy search
+                error_msg = str(e)
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"Error during Swiggy search: {error_msg}"
+                })
+            
+            # Skip everything else - return early
+            return
+        
+        # Step 1: Create plan (only if not Swiggy)
         await websocket.send_json({
             "type": "status",
             "message": "Planning actions..."
@@ -251,7 +579,6 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                 
                 
                 # Extract location from query
-                import re
                 location_match = re.search(r'(?:in|near|at)\s+([A-Za-z\s]+)', query, re.IGNORECASE)
                 location = location_match.group(1).strip() if location_match else "HSR"
                 
@@ -701,7 +1028,6 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                         })
                         
                         # Extract location from instruction if possible
-                        import re
                         location_match = re.search(r'(?:in|near|at)\s+([A-Za-z\s]+)', instruction, re.IGNORECASE)
                         location = location_match.group(1).strip() if location_match else "HSR"
                         

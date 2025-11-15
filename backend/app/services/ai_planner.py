@@ -566,12 +566,6 @@ async def create_action_plan(instruction: str) -> list[dict]:
             context_parts.append("If blocked, the system will offer Google Maps as an alternative")
             context_parts.append("Extraction: Look for restaurant cards, extract name, rating, location, cuisine")
             
-        elif target_platform == "swiggy":
-            context_parts.append("PLATFORM: Swiggy (https://www.swiggy.com)")
-            context_parts.append("STRATEGY: Navigate to Swiggy → Search for places → Extract restaurant listings")
-            context_parts.append("WARNING: Swiggy may block automated access with HTTP2 errors")
-            context_parts.append("If blocked, the system will offer Google Maps as an alternative")
-            context_parts.append("Extraction: Look for restaurant cards, extract name, rating, delivery time")
         
     else:
         context_parts.append("Task: General browser automation")

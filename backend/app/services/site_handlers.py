@@ -424,6 +424,901 @@ class GoogleSearchHandler:
         }
 
 
+class SwiggyHandler:
+    """Handler for Swiggy-specific operations with anti-detection measures."""
+    
+    @staticmethod
+    async def search(page: Page, context: BrowserContext, query: str, location: str = "HSR Layout Bangalore", limit: int = 5, websocket=None, session_id=None) -> Dict:
+        """
+        Search Swiggy for restaurants matching query at location and extract results.
+        Swiggy requires special handling with stealth mode and two-step search activation.
+        
+        Returns: {"status":"success","data":[{name, rating, cuisine, location, price}], "diagnostic": {...}}
+        """
+        try:
+            print(f"\n=== SWIGGY SEARCH STARTED ===")
+            print(f"Query: '{query}'")
+            print(f"Location: '{location}'")
+            print(f"Limit: {limit}")
+            
+            # Build Swiggy URL - go to homepage
+            base_url = "https://www.swiggy.com"
+            
+            # Navigate to Swiggy homepage
+            try:
+                if websocket:
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": "navigate",
+                        "status": "executing",
+                        "step": 1,
+                        "total": 7,
+                        "details": {"action": "navigate", "url": base_url, "description": "Navigate to Swiggy homepage"}
+                    })
+                
+                print(f"\n[1/7] Navigating to Swiggy homepage: {base_url}")
+                await page.goto(base_url, wait_until="domcontentloaded", timeout=30000)
+                await asyncio.sleep(3)  # Let page settle
+                print(f"✓ Page loaded: {page.url}")
+                
+                if websocket:
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": "navigate",
+                        "status": "completed",
+                        "step": 1,
+                        "total": 7,
+                        "details": {"action": "navigate", "url": base_url},
+                        "result": {"status": "success", "url": page.url}
+                    })
+            except Exception as e:
+                print(f"✗ Failed to load Swiggy: {e}")
+                if websocket:
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": "navigate",
+                        "status": "error",
+                        "step": 1,
+                        "total": 7,
+                        "details": {"action": "navigate", "url": base_url},
+                        "result": {"status": "error", "message": str(e)}
+                    })
+                return {"status": "error", "message": f"Failed to load Swiggy: {str(e)}"}
+            
+            # STEP 1: Find and fill the LOCATION input (left box)
+            if websocket:
+                await websocket.send_json({
+                    "type": "action_status",
+                    "action": "type",
+                    "status": "executing",
+                    "step": 2,
+                    "total": 7,
+                    "details": {"action": "type", "selector": "input[type='text']", "text": location, "description": f"Type location: {location}"}
+                })
+            
+            print(f"\n[2/7] Setting location: '{location}'")
+            location_input_selectors = [
+                "input[placeholder*='Enter your delivery location']",
+                "input[placeholder*='location']",
+                "input[placeholder*='area']",
+                # Try by position - location input is usually first
+            ]
+            
+            location_input_found = None
+            for selector in location_input_selectors:
+                try:
+                    await page.wait_for_selector(selector, state="visible", timeout=5000)
+                    location_input_found = selector
+                    break
+                except:
+                    continue
+            
+            # If not found by placeholder, get first text input (usually location)
+            if not location_input_found:
+                try:
+                    all_inputs = await page.query_selector_all("input[type='text']")
+                    if len(all_inputs) >= 2:
+                        # First input is usually location
+                        location_input_found = "input[type='text']"
+                        # We'll use the first one
+                except:
+                    pass
+            
+            if location_input_found:
+                try:
+                    # Get all text inputs
+                    inputs = await page.query_selector_all("input[type='text']")
+                    if len(inputs) >= 1:
+                        location_input = inputs[0]  # First input is location
+                        
+                        # Clear and type location
+                        print(f"  Typing location into input...")
+                        await location_input.fill("")
+                        await location_input.type(location, delay=100)
+                        await asyncio.sleep(2)
+                        print(f"  ✓ Location typed, waiting for suggestions...")
+                        
+                        # Wait for location suggestions to appear
+                        try:
+                            # Wait for suggestion dropdown - try multiple selectors
+                            suggestion_visible = False
+                            wait_selectors = [
+                                "div[class*='_2NKIb']",  # Swiggy suggestion container
+                                "div[class*='_2BgUI']",  # Swiggy suggestion item
+                                "div[class*='_14IZV']",  # Swiggy "Use my current location"
+                                "[role='button'][tabindex]",
+                                "[class*='suggestion']",
+                                "[class*='Suggestion']"
+                            ]
+                            
+                            for wait_sel in wait_selectors:
+                                try:
+                                    await page.wait_for_selector(wait_sel, state="visible", timeout=2000)
+                                    suggestion_visible = True
+                                    break
+                                except:
+                                    continue
+                            
+                            if suggestion_visible:
+                                await asyncio.sleep(1)
+                                
+                                # Find all suggestion items - try Swiggy-specific selectors first
+                                suggestion_selectors = [
+                                    "div[class*='_2BgUI'][role='button']",  # Actual location suggestions
+                                    "div[class*='_2BgUI']",  # Without role check
+                                    "[role='button'][tabindex='2']",  # First location (after "Use my current location" which is tabindex 0)
+                                    "[role='button'][tabindex='3']",  # Second location
+                                    "[role='button'][tabindex]",
+                                    "[role='option']",
+                                    "div[class*='suggestion']",
+                                    "li[class*='suggestion']"
+                                ]
+                                
+                                first_location_suggestion = None
+                                for selector in suggestion_selectors:
+                                    try:
+                                        suggestions = await page.query_selector_all(selector)
+                                        if len(suggestions) > 0:
+                                            # Skip "Use my current location" - find first actual location
+                                            for suggestion in suggestions:
+                                                text = await suggestion.text_content()
+                                                if text and "Use my current location" not in text.strip() and len(text.strip()) > 5:
+                                                    # Also check if it looks like a location (contains city/area name)
+                                                    if any(word in text for word in ["Layout", "Bengaluru", "Bangalore", "Karnataka", "India", "Road", "Sector"]):
+                                                        first_location_suggestion = suggestion
+                                                        break
+                                            if first_location_suggestion:
+                                                break
+                                    except:
+                                        continue
+                                
+                                if first_location_suggestion:
+                                    # Click the first location suggestion
+                                    suggestion_text = await first_location_suggestion.text_content()
+                                    print(f"  ✓ Found location suggestion: '{suggestion_text[:60] if suggestion_text else 'N/A'}'")
+                                    
+                                    if websocket:
+                                        await websocket.send_json({
+                                            "type": "action_status",
+                                            "action": "type",
+                                            "status": "completed",
+                                            "step": 2,
+                                            "total": 7,
+                                            "details": {"action": "type", "text": location},
+                                            "result": {"status": "success"}
+                                        })
+                                        await websocket.send_json({
+                                            "type": "action_status",
+                                            "action": "click",
+                                            "status": "executing",
+                                            "step": 3,
+                                            "total": 7,
+                                            "details": {"action": "click", "selector": "location suggestion", "description": "Click location suggestion"}
+                                        })
+                                    
+                                    print(f"  Clicking location suggestion...")
+                                    await first_location_suggestion.click()
+                                    await asyncio.sleep(2)
+                                    print(f"  ✓ Location set successfully")
+                                    
+                                    if websocket:
+                                        await websocket.send_json({
+                                            "type": "action_status",
+                                            "action": "click",
+                                            "status": "completed",
+                                            "step": 3,
+                                            "total": 7,
+                                            "details": {"action": "click", "selector": "location suggestion"},
+                                            "result": {"status": "success"}
+                                        })
+                                else:
+                                    # Fallback: use keyboard navigation (ArrowDown twice to skip "Use my current location")
+                                    await page.keyboard.press("ArrowDown")
+                                    await asyncio.sleep(0.3)
+                                    await page.keyboard.press("ArrowDown")
+                                    await asyncio.sleep(0.3)
+                                    await page.keyboard.press("Enter")
+                                    await asyncio.sleep(2)
+                            else:
+                                # If suggestions don't appear, try keyboard navigation
+                                await page.keyboard.press("ArrowDown")
+                                await asyncio.sleep(0.3)
+                                await page.keyboard.press("ArrowDown")
+                                await asyncio.sleep(0.3)
+                                await page.keyboard.press("Enter")
+                                await asyncio.sleep(2)
+                        except Exception as e:
+                            # If no suggestions appear, use keyboard navigation
+                            await page.keyboard.press("ArrowDown")
+                            await asyncio.sleep(0.3)
+                            await page.keyboard.press("ArrowDown")
+                            await asyncio.sleep(0.3)
+                            await page.keyboard.press("Enter")
+                            await asyncio.sleep(2)
+                except Exception as e:
+                    # If location input fails, continue anyway - maybe location is already set
+                    pass
+            
+            # STEP 2: Find and fill the FOOD SEARCH input (right box)
+            if websocket:
+                await websocket.send_json({
+                    "type": "action_status",
+                    "action": "click",
+                    "status": "executing",
+                    "step": 4,
+                    "total": 7,
+                    "details": {"action": "click", "selector": "search div", "description": "Open food search input"}
+                })
+            
+            print(f"\n[4/7] Opening food search...")
+            # The search field is a DIV with type="button", not an input!
+            # We need to click it first to open the actual search input
+            await asyncio.sleep(2)
+            
+            search_input = None
+            
+            # Find the search div (type="button") that contains "Search for restaurant, item or more"
+            search_div = await page.query_selector("div[type='button']:has-text('Search for restaurant')")
+            
+            if not search_div:
+                # Try by class (from inspection: sc-dtBdUo eyFBpp)
+                search_div = await page.query_selector("div.sc-dtBdUo, div.eyFBpp")
+            
+            if not search_div:
+                # Find any div with the text
+                search_div = await page.query_selector("div:has-text('Search for restaurant, item or more')")
+            
+            if search_div:
+                # Click it to open the search input
+                print(f"  Found search div, clicking to open search input...")
+                await search_div.click()
+                await asyncio.sleep(2)  # Wait for search input to appear
+                print(f"  ✓ Search input should be visible now")
+                
+                if websocket:
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": "click",
+                        "status": "completed",
+                        "step": 4,
+                        "total": 7,
+                        "details": {"action": "click", "selector": "search div"},
+                        "result": {"status": "success"}
+                    })
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": "type",
+                        "status": "executing",
+                        "step": 5,
+                        "total": 7,
+                        "details": {"action": "type", "selector": "search input", "text": query, "description": f"Search for: {query}"}
+                    })
+            
+            # NOW get the actual input that appears after clicking
+            all_inputs = await page.query_selector_all("input")
+            
+            # Find input that's not location - same logic as location input
+            for inp in all_inputs:
+                try:
+                    inp_id = await inp.get_attribute("id")
+                    inp_type = await inp.get_attribute("type")
+                    placeholder = await inp.get_attribute("placeholder")
+                    is_visible = await inp.is_visible()
+                    
+                    # Skip location input
+                    if inp_id == "location" or (placeholder and "location" in placeholder.lower()):
+                        continue
+                    
+                    # Skip hidden inputs
+                    if not is_visible:
+                        continue
+                    
+                    # Skip non-text inputs (but allow None/empty type which defaults to text)
+                    if inp_type and inp_type not in ['text', 'search']:
+                        continue
+                    
+                    # This is the search input - use it!
+                    search_input = inp
+                    print(f"  ✓ Found search input (id='{inp_id}', placeholder='{placeholder}')")
+                    break
+                except:
+                    continue
+            
+            if not search_input:
+                print(f"  ✗ Could not find search input")
+                return {
+                    "status": "error",
+                    "message": "Could not find Swiggy food search input. The site structure may have changed.",
+                    "suggestion": "Try using Google Maps for restaurant discovery: 'find pizza in HSR on Google Maps'"
+                }
+            
+            # Focus the input first
+            await search_input.click()
+            await asyncio.sleep(0.3)
+            
+            # Type ONLY the food/dish query in the search box
+            # Check if it's a contenteditable div or regular input
+            tag_name = await search_input.evaluate("el => el.tagName.toLowerCase()")
+            if tag_name == "div":
+                # It's a contenteditable div
+                await search_input.type(query, delay=100)
+            else:
+                # Regular input - clear first, then type
+                await search_input.fill("")
+                await asyncio.sleep(0.2)
+                await search_input.type(query, delay=100)
+            
+            # Wait to ensure text is typed
+            await asyncio.sleep(0.5)
+            
+            # Verify text is still there, retype if needed
+            try:
+                current_value = await search_input.input_value() if tag_name != "div" else await search_input.evaluate("el => el.textContent || el.innerText")
+                if not current_value or query not in current_value:
+                    # Text was cleared, retype
+                    if tag_name == "div":
+                        await search_input.evaluate("el => el.textContent = ''")
+                    else:
+                        await search_input.fill("")
+                    await asyncio.sleep(0.2)
+                    await search_input.type(query, delay=100)
+                    await asyncio.sleep(0.5)
+            except:
+                pass
+            
+            # Press Enter directly on the input (more reliable than clicking button)
+            print(f"  Pressing Enter to submit search...")
+            await search_input.press("Enter")
+            print(f"  ✓ Search submitted")
+            
+            if websocket:
+                await websocket.send_json({
+                    "type": "action_status",
+                    "action": "type",
+                    "status": "completed",
+                    "step": 5,
+                    "total": 7,
+                    "details": {"action": "type", "text": query},
+                    "result": {"status": "success"}
+                })
+                await websocket.send_json({
+                    "type": "action_status",
+                    "action": "click",
+                    "status": "executing",
+                    "step": 6,
+                    "total": 7,
+                    "details": {"action": "click", "selector": "Restaurants button", "description": "Filter by Restaurants"}
+                })
+            
+            # Wait for results to load - Swiggy uses dynamic loading
+            await asyncio.sleep(3)
+            
+            # STEP 3: Click "Restaurants" filter button (not "Dishes")
+            print(f"\n[6/7] Clicking 'Restaurants' filter...")
+            # The filter buttons appear after search: "Restaurants" and "Dishes"
+            restaurants_button = None
+            restaurant_button_selectors = [
+                "button:has-text('Restaurants')",
+                "div:has-text('Restaurants')",
+                "[role='button']:has-text('Restaurants')",
+                "button[aria-label*='Restaurants']"
+            ]
+            
+            for selector in restaurant_button_selectors:
+                try:
+                    btn = await page.query_selector(selector)
+                    if btn:
+                        is_visible = await btn.is_visible()
+                        text = await btn.text_content()
+                        if is_visible and text and "Restaurants" in text and "Dishes" not in text:
+                            restaurants_button = btn
+                            break
+                except:
+                    continue
+            
+            # If not found by text, try to find by position (Restaurants is usually first)
+            if not restaurants_button:
+                try:
+                    all_buttons = await page.query_selector_all("button, div[role='button']")
+                    for btn in all_buttons:
+                        try:
+                            text = await btn.text_content()
+                            if text and "Restaurants" in text.strip() and "Dishes" not in text.strip():
+                                is_visible = await btn.is_visible()
+                                if is_visible:
+                                    restaurants_button = btn
+                                    break
+                        except:
+                            continue
+                except:
+                    pass
+            
+            if restaurants_button:
+                print(f"  ✓ Found Restaurants button, clicking...")
+                await restaurants_button.click()
+                await asyncio.sleep(3)  # Wait for filter to apply and page to update
+                print(f"  ✓ Restaurants filter applied")
+                
+                if websocket:
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": "click",
+                        "status": "completed",
+                        "step": 6,
+                        "total": 7,
+                        "details": {"action": "click", "selector": "Restaurants button"},
+                        "result": {"status": "success"}
+                    })
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": "extract",
+                        "status": "executing",
+                        "step": 7,
+                        "total": 7,
+                        "details": {"action": "extract", "limit": limit, "description": "Extract restaurant data"}
+                    })
+            else:
+                print(f"  ⚠️ Restaurants button not found, continuing anyway...")
+                if websocket:
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": "click",
+                        "status": "completed",
+                        "step": 6,
+                        "total": 7,
+                        "details": {"action": "click", "selector": "Restaurants button"},
+                        "result": {"status": "success", "note": "Button not found, continuing"}
+                    })
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": "extract",
+                        "status": "executing",
+                        "step": 7,
+                        "total": 7,
+                        "details": {"action": "extract", "limit": limit}
+                    })
+                
+                # Verify we're on restaurants view (not dishes)
+                # Check if "Restaurants" button is now selected/active
+                try:
+                    button_text = await restaurants_button.text_content()
+                    # The active button usually has different styling or aria-selected
+                    is_selected = await restaurants_button.evaluate("""
+                        el => {
+                            return el.getAttribute('aria-selected') === 'true' ||
+                                   el.classList.contains('selected') ||
+                                   el.classList.contains('active') ||
+                                   window.getComputedStyle(el).fontWeight === 'bold';
+                        }
+                    """)
+                    if not is_selected:
+                        # Try clicking again or wait longer
+                        await asyncio.sleep(2)
+                except:
+                    pass
+            
+            # Scroll to trigger lazy loading of more results
+            await page.evaluate("window.scrollBy(0, 500)")
+            await asyncio.sleep(2)
+            await page.evaluate("window.scrollBy(0, 500)")
+            await asyncio.sleep(2)
+            
+            # Poll for restaurant cards
+            print(f"\n[7/7] Extracting restaurant data...")
+            total_wait = 15
+            poll_interval = 2
+            elapsed = 0
+            found = False
+            
+            while elapsed < total_wait:
+                print(f"  Polling for restaurant cards... ({elapsed}s/{total_wait}s)")
+                card_count = await page.evaluate("""
+                    () => {
+                        // Try multiple strategies to find restaurant cards
+                        // NOTE: Swiggy uses "resturant" (typo) in data-testid
+                        const selectors = [
+                            'a[data-testid="resturant-card-anchor-container"]',  // Actual Swiggy selector (with typo)
+                            'a[data-testid*="resturant-card"]',  // Variant with typo
+                            'a[href*="/restaurant/"]',  // Restaurant links
+                            'a[href*="/city/"]',  // City-based restaurant links
+                            'div[data-testid="restaurant-card"]',
+                            '[data-testid="restaurant-card"]',
+                            'div[class*="restaurant-card"]',
+                            'div[class*="RestaurantCard"]',
+                            'div[class*="cardContainer"]',
+                            'div[class*="CardContainer"]'
+                        ];
+                        let maxCount = 0;
+                        for (const sel of selectors) {
+                            const count = document.querySelectorAll(sel).length;
+                            if (count > maxCount) maxCount = count;
+                        }
+                        
+                        // Also try finding by structure: links or divs containing restaurant-like text
+                        if (maxCount === 0) {
+                            const allLinks = Array.from(document.querySelectorAll('a[href*="/restaurant/"], a[href*="/city/"]'));
+                            if (allLinks.length > 0) {
+                                maxCount = allLinks.length;
+                            }
+                        }
+                        
+                        return maxCount;
+                    }
+                """)
+                
+                if card_count >= 1:
+                    print(f"  ✓ Found {card_count} restaurant cards!")
+                    found = True
+                    break
+                
+                await asyncio.sleep(poll_interval)
+                elapsed += poll_interval
+            
+            if not found:
+                # Check if we're blocked or redirected
+                current_url = page.url
+                page_text = await page.evaluate("() => document.body.innerText.slice(0, 1000)")
+                
+                return {
+                    "status": "error",
+                    "message": "No restaurant cards found. Swiggy may be blocking automated access or the search returned no results.",
+                    "current_url": current_url,
+                    "page_preview": page_text[:500],
+                    "suggestion": "Try using Google Maps instead: search 'pizza restaurants in HSR Layout Bangalore' on Google Maps"
+                }
+            
+            # Extract restaurant data
+            extraction_js = """
+            (params) => {
+                const limit = params.limit || 10;
+                const results = [];
+                
+                // Try multiple selectors for restaurant cards (updated based on actual Swiggy structure)
+                // NOTE: Swiggy uses "resturant" (typo) in data-testid, not "restaurant"
+                const cardSelectors = [
+                    'a[data-testid="resturant-card-anchor-container"]',  // Actual Swiggy selector (with typo)
+                    'a[data-testid*="resturant-card"]',  // Variant with typo
+                    'a[href*="/restaurant/"]',  // Restaurant links
+                    'a[href*="/city/"]',  // City-based restaurant links
+                    'div[data-testid="restaurant-card"]',
+                    '[data-testid="restaurant-card"]',
+                    'div[class*="styles__cardContainer"]',
+                    'div[class*="RestaurantCard"]',
+                    'div[class*="restaurant-card"]',
+                    'a[class*="restaurant"]'
+                ];
+                
+                let cards = [];
+                for (const sel of cardSelectors) {
+                    const found = Array.from(document.querySelectorAll(sel));
+                    if (found.length > 0) {
+                        console.log(`[Swiggy] Found ${found.length} elements with selector: ${sel}`);
+                        // Filter: only keep elements that look like restaurant cards
+                        // (contain restaurant name-like text, not just any link)
+                        const filtered = found.filter(card => {
+                            const text = card.textContent || '';
+                            // Restaurant cards usually have names, ratings, delivery info, or price
+                            // But be less strict - if it's the right selector, trust it
+                            if (sel.includes('data-testid="resturant-card-anchor-container"') || 
+                                sel.includes('data-testid*="resturant-card"')) {
+                                // Trust the data-testid selector
+                                return true;
+                            }
+                            // For other selectors, filter more strictly
+                            return text.length > 20 && (
+                                text.match(/\\d+\\.\\d/) ||  // Has rating
+                                text.includes('MINS') ||     // Has delivery time
+                                text.includes('FOR TWO') ||  // Has price
+                                text.includes('Delivers in') ||  // Delivery text
+                                text.includes('Cost is')     // Cost text
+                            );
+                        });
+                        if (filtered.length > 0) {
+                            console.log(`[Swiggy] Using ${filtered.length} cards with selector: ${sel}`);
+                            cards = filtered;
+                            break;
+                        }
+                    }
+                }
+                
+                // If still no cards, try getting all restaurant links without filtering
+                if (cards.length === 0) {
+                    const allRestaurantLinks = Array.from(document.querySelectorAll('a[href*="/restaurant/"], a[href*="/city/"]'));
+                    if (allRestaurantLinks.length > 0) {
+                        console.log(`[Swiggy] Found ${allRestaurantLinks.length} restaurant links (no filtering)`);
+                        cards = allRestaurantLinks;
+                    }
+                }
+                
+                console.log(`[Swiggy] Processing ${Math.min(limit, cards.length)} cards...`);
+                
+                for (let i = 0; i < Math.min(limit, cards.length); i++) {
+                    const card = cards[i];
+                    
+                    // Extract name - try multiple strategies
+                    let name = null;
+                    
+                    // Strategy 1: Try aria-label (Swiggy sometimes puts name there)
+                    try {
+                        const ariaLabel = card.getAttribute('aria-label') || '';
+                        if (ariaLabel && ariaLabel.includes('Restaurant name')) {
+                            const nameMatch = ariaLabel.match(/Restaurant name\\s+(.+?)(?:,|$)/i);
+                            if (nameMatch && nameMatch[1].trim().length >= 3) {
+                                name = nameMatch[1].trim();
+                            }
+                        }
+                    } catch (e) {}
+                    
+                    // Strategy 2: Try structured selectors
+                    if (!name) {
+                        const nameSelectors = [
+                            'div[class*="name"]', 
+                            'div[class*="Name"]', 
+                            'div[class*="title"]',
+                            'div[class*="Title"]',
+                            'h1', 'h2', 'h3', 'h4'
+                        ];
+                        
+                        for (const sel of nameSelectors) {
+                            const elements = card.querySelectorAll(sel);
+                            for (const el of elements) {
+                                const text = el.textContent.trim();
+                                // Name should be 5-80 chars, not contain numbers at start, not common UI text
+                                if (text.length >= 5 && text.length <= 80 && 
+                                    !/^\d/.test(text) &&
+                                    !text.match(/^(Ad|ITEMS|MINS|FOR TWO|₹|Cart|Sign|Help|Offers|NEW|Search|By)$/i) &&
+                                    !text.includes('•') &&
+                                    !text.match(/^\\d+\\.\\d/) &&  // Not a rating
+                                    !text.match(/\\d+\\s*MINS/i) &&  // Not delivery time
+                                    !text.match(/₹\\s*\\d+/) &&  // Not price
+                                    !text.includes('Pizzas,') &&  // Not cuisine list
+                                    !text.includes('Delivers in') &&  // Not delivery text
+                                    !text.includes('Cost is')) {  // Not cost text
+                                    name = text;
+                                    break;
+                                }
+                            }
+                            if (name) break;
+                        }
+                    }
+                    
+                    // Strategy 3: Extract from href URL as fallback
+                    if (!name && card.href) {
+                        try {
+                            const urlMatch = card.href.match(/\\/([^/]+)-rest\\d+$/);
+                            if (urlMatch) {
+                                // Convert URL slug to readable name
+                                const slug = urlMatch[1];
+                                name = slug.split('-').map(word => 
+                                    word.charAt(0).toUpperCase() + word.slice(1)
+                                ).join(' ');
+                            }
+                        } catch (e) {}
+                    }
+                    
+                    // Strategy 4: Parse text content, looking for first substantial line
+                    if (!name) {
+                        const allText = card.textContent || '';
+                        const lines = allText.split('\\n').map(l => l.trim()).filter(l => l.length > 0);
+                        for (const line of lines) {
+                            // Skip common UI elements, cuisine lists, ratings, prices, etc.
+                            if (line.length >= 5 && line.length <= 80 &&
+                                !/^\d/.test(line) &&
+                                !line.match(/^(Ad|ITEMS|MINS|FOR TWO|₹|Cart|Sign|Help|Offers|NEW|Search|Restaurants|Dishes|By)$/i) &&
+                                !line.includes('•') &&
+                                !line.match(/^\\d+\\.\\d/) &&  // Not a rating
+                                !line.match(/\\d+\\s*MINS/i) &&  // Not delivery time
+                                !line.match(/₹\\s*\\d+/) &&  // Not price
+                                !line.includes('Pizzas,') &&  // Not cuisine list start
+                                !line.includes('Delivers in') &&  // Not delivery text
+                                !line.includes('Cost is') &&  // Not cost text
+                                !line.includes('km away') &&  // Not distance
+                                !line.match(/^[A-Z\\s,]+$/)) {  // Not all caps (likely cuisine)
+                                name = line;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // Extract rating - look for decimal numbers with star icon or specific patterns
+                    let rating = null;
+                    const ratingSelectors = [
+                        'div[class*="rating"]', 
+                        'span[class*="rating"]', 
+                        'div[class*="Rating"]',
+                        '[aria-label*="star"]',
+                        'svg ~ span',  // Often rating is next to star icon
+                        'svg ~ div'
+                    ];
+                    for (const sel of ratingSelectors) {
+                        const el = card.querySelector(sel);
+                        if (el) {
+                            const text = el.textContent.trim();
+                            // Match decimal like "4.5" or "4.3"
+                            const match = text.match(/(\d\.\d)/);
+                            if (match) {
+                                const val = parseFloat(match[1]);
+                                if (val >= 1 && val <= 5) {
+                                    rating = match[1];
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // If no rating found with selectors, scan all text in card
+                    if (!rating) {
+                        const allText = card.textContent;
+                        // First try: rating with word boundary (space before it)
+                        let matches = allText.match(/\b(\d\.\d)\b/g);
+                        if (!matches || matches.length === 0) {
+                            // Second try: rating directly after text (no space) - e.g., "Pizza4.3"
+                            matches = allText.match(/([A-Za-z])(\d\.\d)/g);
+                            if (matches) {
+                                // Extract just the rating part (e.g., "4.3" from "a4.3")
+                                matches = matches.map(m => m.match(/(\d\.\d)/)[1]);
+                            }
+                        }
+                        if (matches) {
+                            for (const m of matches) {
+                                const val = parseFloat(m);
+                                if (val >= 1 && val <= 5) {
+                                    rating = m;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    
+                    // Extract cuisine - usually second or third line of text
+                    let cuisine = null;
+                    const cuisineSelectors = [
+                        'div[class*="cuisine"]', 
+                        'div[class*="Cuisine"]',
+                        'span[class*="cuisine"]',
+                        'div[class*="category"]'
+                    ];
+                    for (const sel of cuisineSelectors) {
+                        const el = card.querySelector(sel);
+                        if (el && el.textContent.trim()) {
+                            cuisine = el.textContent.trim();
+                            break;
+                        }
+                    }
+                    
+                    // Extract location/area
+                    let location = null;
+                    const locationSelectors = [
+                        'div[class*="location"]', 
+                        'div[class*="area"]', 
+                        'div[class*="locality"]',
+                        'span[class*="location"]'
+                    ];
+                    for (const sel of locationSelectors) {
+                        const el = card.querySelector(sel);
+                        if (el && el.textContent.trim()) {
+                            location = el.textContent.trim();
+                            break;
+                        }
+                    }
+                    
+                    // Extract price/cost - look for ₹ symbol
+                    let price = null;
+                    const priceSelectors = [
+                        'div[class*="price"]', 
+                        'span[class*="price"]', 
+                        'div[class*="cost"]',
+                        'span[class*="cost"]'
+                    ];
+                    for (const sel of priceSelectors) {
+                        const el = card.querySelector(sel);
+                        if (el && el.textContent.includes('₹')) {
+                            price = el.textContent.trim();
+                            break;
+                        }
+                    }
+                    
+                    // If no price in specific selectors, search card text for ₹ or "FOR TWO"
+                    if (!price) {
+                        const allText = card.textContent;
+                        // Try to find "₹XXX FOR TWO" pattern
+                        const forTwoMatch = allText.match(/₹\s*\d+\s*FOR\s*TWO/i);
+                        if (forTwoMatch) {
+                            price = forTwoMatch[0];
+                        } else {
+                            // Fallback to any ₹ pattern
+                            const priceMatch = allText.match(/₹\s*\d+/);
+                            if (priceMatch) {
+                                price = priceMatch[0];
+                            }
+                        }
+                    }
+                    
+                    // Get URL
+                    let url = null;
+                    const linkEl = card.tagName === 'A' ? card : card.querySelector('a');
+                    if (linkEl && linkEl.href) {
+                        url = linkEl.href;
+                    } else {
+                        // Construct URL from restaurant name if available
+                        url = 'https://www.swiggy.com';
+                    }
+                    
+                    // Only add if we have at least a name
+                    if (name) {
+                        results.push({
+                            name,
+                            rating: rating ? parseFloat(rating) : null,
+                            cuisine: cuisine || 'N/A',
+                            location: location || 'N/A',
+                            price: price || 'N/A',
+                            url
+                        });
+                        console.log(`[Swiggy] Extracted: ${name} (${rating || 'no rating'})`);
+                    }
+                }
+                
+                console.log(`[Swiggy] Successfully extracted ${results.length} restaurants`);
+                return results;
+            }
+            """
+            
+            data = await page.evaluate(extraction_js, {"limit": limit})
+            
+            print(f"\n=== EXTRACTION COMPLETE ===")
+            print(f"Extracted {len(data)} restaurants")
+            for i, item in enumerate(data[:3], 1):
+                print(f"  {i}. {item.get('name', 'N/A')} - Rating: {item.get('rating', 'N/A')}")
+            
+            result = {
+                "status": "success",
+                "data": data,
+                "count": len(data)
+            }
+            
+            # Send extract action with results
+            if websocket:
+                await websocket.send_json({
+                    "type": "action_status",
+                    "action": "extract",
+                    "status": "completed",
+                    "step": 7,
+                    "total": 7,
+                    "result": result,
+                    "details": {"action": "extract", "limit": limit}
+                })
+            
+            return result
+            
+        except Exception as e:
+            import traceback
+            return {
+                "status": "error",
+                "message": str(e),
+                "traceback": traceback.format_exc()
+            }
+
+
 class YouTubeHandler:
     """Handler for YouTube-specific operations."""
     
