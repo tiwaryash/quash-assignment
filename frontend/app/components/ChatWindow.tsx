@@ -125,6 +125,12 @@ export default function ChatWindow() {
               timestamp: Date.now()
             }];
           });
+        } else if (data.type === 'form_submission') {
+          // Handle form submission details
+          setMessages(prev => [...prev, {
+            ...data,
+            timestamp: Date.now()
+          }]);
         } else {
           // For other message types, just add them
           setMessages(prev => [...prev, {
@@ -283,6 +289,7 @@ export default function ChatWindow() {
                 total={msg.total}
                 details={msg.details}
                 result={msg.result}
+                warning={msg.warning || false}
               />
             );
           }
@@ -375,6 +382,89 @@ export default function ChatWindow() {
                 <div className="bg-black/40 border border-yellow-500/30 rounded-full px-5 py-2 text-sm text-yellow-500/70 font-medium inline-flex items-center gap-2">
                   <Circle className="w-3 h-3" />
                   {msg.message}
+                </div>
+              </div>
+            );
+          }
+          
+          if (msg.type === 'form_submission') {
+            return (
+              <div key={idx} className="animate-slide-in-left">
+                <div className="bg-black/50 border-2 border-yellow-500/50 rounded-2xl p-5 yellow-glow">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="bg-yellow-500/20 p-2 rounded-xl">
+                      <CheckCircle2 className="w-6 h-6 text-yellow-500" />
+                    </div>
+                    <span className="font-black text-yellow-500 text-lg">Form Submitted</span>
+                    {msg.has_success && (
+                      <span className="ml-auto text-xs bg-green-500/20 text-green-400 px-3 py-1.5 rounded-full font-bold border border-green-500/30">
+                        Success
+                      </span>
+                    )}
+                    {msg.has_error && (
+                      <span className="ml-auto text-xs bg-red-500/20 text-red-400 px-3 py-1.5 rounded-full font-bold border border-red-500/30">
+                        Error
+                      </span>
+                    )}
+                  </div>
+                  
+                  {/* URLs */}
+                  <div className="space-y-3 mb-4">
+                    <div className="bg-black/30 rounded-lg p-3 border border-yellow-500/20">
+                      <div className="text-xs text-yellow-500/60 font-semibold mb-1">Submitted From</div>
+                      <div className="text-sm text-yellow-300 font-mono break-all">{msg.submitted_url || 'N/A'}</div>
+                    </div>
+                    
+                    {msg.url_changed && msg.redirected_url && (
+                      <div className="bg-black/30 rounded-lg p-3 border border-yellow-500/20">
+                        <div className="text-xs text-yellow-500/60 font-semibold mb-1">Redirected To</div>
+                        <div className="text-sm text-yellow-300 font-mono break-all">{msg.redirected_url}</div>
+                      </div>
+                    )}
+                  </div>
+                  
+                  {/* Form Data Submitted */}
+                  {msg.form_data && Object.keys(msg.form_data).length > 0 && (
+                    <div className="mb-4">
+                      <div className="text-xs text-yellow-500/60 font-semibold mb-2">Submitted Data</div>
+                      <div className="bg-black/30 rounded-lg p-3 border border-yellow-500/20 max-h-48 overflow-y-auto">
+                        <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">
+                          {JSON.stringify(msg.form_data, null, 2)}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Response Data */}
+                  {msg.response_data && Object.keys(msg.response_data).length > 0 && (
+                    <div className="mb-4">
+                      <div className="text-xs text-yellow-500/60 font-semibold mb-2">Server Response</div>
+                      <div className="bg-black/30 rounded-lg p-3 border border-yellow-500/20 max-h-48 overflow-y-auto">
+                        <pre className="text-xs text-yellow-300 font-mono whitespace-pre-wrap">
+                          {JSON.stringify(msg.response_data, null, 2)}
+                        </pre>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Messages */}
+                  {msg.messages && msg.messages.length > 0 && (
+                    <div className="space-y-2">
+                      {msg.messages.map((message: any, msgIdx: number) => (
+                        <div 
+                          key={msgIdx}
+                          className={`p-3 rounded-lg border ${
+                            message.type === 'success' 
+                              ? 'bg-green-500/10 border-green-500/30 text-green-400'
+                              : 'bg-red-500/10 border-red-500/30 text-red-400'
+                          }`}
+                        >
+                          <div className="text-xs font-semibold mb-1">{message.type === 'success' ? 'Success' : 'Error'}</div>
+                          <div className="text-sm">{message.text || 'No message'}</div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             );

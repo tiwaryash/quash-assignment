@@ -24,10 +24,24 @@ interface ActionCardProps {
   total?: number;
   details?: any;
   result?: any;
+  warning?: boolean;
 }
 
-export default function ActionCard({ action, status, step, total, details, result }: ActionCardProps) {
+export default function ActionCard({ action, status, step, total, details, result, warning }: ActionCardProps) {
   const getStatusConfig = () => {
+    // If warning flag is set, show as completed but with warning styling
+    if (warning && status === 'completed') {
+      return {
+        bg: 'bg-black/50',
+        border: 'border-orange-500/50',
+        text: 'text-orange-400',
+        icon: <AlertTriangle className="w-6 h-6" />,
+        iconBg: 'bg-orange-500/20',
+        badgeBg: 'bg-orange-500/20',
+        pulse: false
+      };
+    }
+    
     switch (status) {
       case 'executing':
         return {
@@ -125,7 +139,19 @@ export default function ActionCard({ action, status, step, total, details, resul
         </div>
       )}
       
-      {result && result.error && (
+      {warning && result && result.note && (
+        <div className="mt-4 pt-4 border-t border-orange-500/30">
+          <div className="text-sm text-orange-300 bg-orange-500/10 p-3 rounded-xl border border-orange-500/30 font-medium">
+            <div className="flex items-center gap-2 mb-1">
+              <AlertTriangle className="w-4 h-4" />
+              <span className="font-black">Warning: </span>
+            </div>
+            {result.note}
+          </div>
+        </div>
+      )}
+      
+      {result && result.error && !warning && (
         <div className="mt-4 pt-4 border-t border-red-500/30 space-y-3">
           <div className="text-sm text-red-300 bg-red-500/10 p-3 rounded-xl border border-red-500/30 font-medium">
             <span className="font-black">Error: </span>
