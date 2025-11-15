@@ -1,6 +1,6 @@
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext, TimeoutError as PlaywrightTimeout
 from app.services.site_selectors import get_selectors_for_site, detect_site_from_url
-from app.services.site_handlers import GoogleMapsHandler, SiteExtractionHandler
+from app.services.site_handlers import GoogleMapsHandler, SiteExtractionHandler, YouTubeHandler
 from app.core.config import settings
 from app.core.retry import retry_async, RetryConfig
 from app.core.logger import logger, log_action
@@ -470,6 +470,19 @@ class BrowserAgent:
             if "input[aria-label*='Search']" not in selectors_to_try:
                 selectors_to_try.insert(1, "input[aria-label*='Search']")
         
+        # For YouTube, add YouTube-specific selectors
+        if self.current_site == "youtube":
+            youtube_selectors = [
+                "input[name='search_query']",
+                "#search",
+                "input#search",
+                "input[placeholder*='Search']",
+                "input[aria-label*='Search']"
+            ]
+            for yt_sel in youtube_selectors:
+                if yt_sel not in selectors_to_try:
+                    selectors_to_try.insert(0, yt_sel)
+        
         # If the original selector is input[name='q'], add textarea alternative (common for Google, etc.)
         if "input[name='q']" in selector:
             selectors_to_try.extend([
@@ -568,6 +581,29 @@ class BrowserAgent:
                             "text": text,
                             "original_selector": selector if sel != selector else None,
                             "note": "Search submitted automatically on Google Maps"
+                        }
+                    
+                    # For YouTube, automatically press Enter after typing (no need for click)
+                    elif self.current_site == "youtube":
+                        await asyncio.sleep(0.5)  # Small delay to ensure typing is complete
+                        await self.page.keyboard.press("Enter")
+                        
+                        # Wait for URL to change (search executed) or results to appear
+                        current_url = self.page.url
+                        try:
+                            await self.page.wait_for_url(lambda url: url != current_url or "results" in url.lower() or "search_query" in url.lower(), timeout=10000)
+                        except:
+                            pass
+                        
+                        # Wait a bit for results to load
+                        await asyncio.sleep(2)
+                        
+                        return {
+                            "status": "success", 
+                            "selector": sel, 
+                            "text": text,
+                            "original_selector": selector if sel != selector else None,
+                            "note": "Search submitted automatically on YouTube (Enter pressed)"
                         }
                     
                     return {
@@ -1423,6 +1459,10 @@ EXAMPLES:
         """
         if not self.page:
             return {"status": "error", "error": "Browser not initialized"}
+        
+        # For YouTube, use specialized extraction
+        if self.current_site == "youtube":
+            return await YouTubeHandler.extract_video_urls(self.page, limit or 10)
         
         # Get site-specific selectors as fallback
         site_selectors = get_selectors_for_site(self.current_site)

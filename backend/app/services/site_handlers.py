@@ -317,6 +317,72 @@ class GoogleMapsHandler:
         return {"status": "success", "data": extraction, "diagnostic": diagnostic}
 
 
+class YouTubeHandler:
+    """Handler for YouTube-specific operations."""
+    
+    @staticmethod
+    async def extract_video_urls(page: Page, limit: int = 10) -> Dict:
+        """
+        Extract video URLs from YouTube search results.
+        Only extracts links from video containers, not login or other links.
+        
+        Returns: {"status": "success", "data": [{"title": "...", "url": "..."}], "count": N}
+        """
+        try:
+            # Wait for video results to appear
+            await page.wait_for_selector("#contents ytd-video-renderer, ytd-video-renderer", timeout=10000)
+        except:
+            pass  # Continue anyway
+        
+        # Extract videos using specialized JavaScript
+        videos = await page.evaluate(f"""
+            () => {{
+                const videos = [];
+                // Find all video renderers
+                const videoContainers = document.querySelectorAll('#contents ytd-video-renderer, ytd-video-renderer');
+                
+                for (let i = 0; i < Math.min({limit}, videoContainers.length); i++) {{
+                    const container = videoContainers[i];
+                    
+                    // Get title
+                    const titleEl = container.querySelector('#video-title, a#video-title, #video-title-link');
+                    const title = titleEl ? titleEl.textContent?.trim() || titleEl.getAttribute('title') || '' : '';
+                    
+                    // Get URL - only from video title link, not any link
+                    let url = null;
+                    const titleLink = container.querySelector('#video-title-link, a#video-title');
+                    if (titleLink) {{
+                        const href = titleLink.getAttribute('href');
+                        if (href) {{
+                            // Make absolute URL if relative
+                            if (href.startsWith('/')) {{
+                                url = 'https://www.youtube.com' + href;
+                            }} else if (href.startsWith('http')) {{
+                                url = href;
+                            }}
+                        }}
+                    }}
+                    
+                    // Only add if we have both title and URL
+                    if (title && url && url.includes('/watch')) {{
+                        videos.push({{
+                            title: title,
+                            url: url
+                        }});
+                    }}
+                }}
+                
+                return videos;
+            }}
+        """)
+        
+        return {
+            "status": "success",
+            "data": videos,
+            "count": len(videos)
+        }
+
+
 class SiteExtractionHandler:
     """Handler for site-specific extraction logic."""
     

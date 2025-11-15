@@ -833,7 +833,33 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                         # Debug: Log intent info
                         
                         # Apply filters based on intent
-                        if intent_info.get("intent") == "product_search":
+                        if intent_info.get("intent") == "url_search":
+                            # For URL search, prioritize URLs and ensure they're complete
+                            for item in extracted_data:
+                                # Ensure URL is absolute (add domain if relative)
+                                if item.get("url") and not item["url"].startswith(("http://", "https://")):
+                                    # Try to make it absolute
+                                    current_url = browser_agent.page.url if browser_agent.page else ""
+                                    if current_url:
+                                        from urllib.parse import urljoin, urlparse
+                                        base_url = f"{urlparse(current_url).scheme}://{urlparse(current_url).netloc}"
+                                        item["url"] = urljoin(base_url, item["url"])
+                                
+                                # Ensure we have a title or use URL as fallback
+                                if not item.get("title") and item.get("url"):
+                                    item["title"] = item["url"]
+                            
+                            # Limit to first 10 results (user usually wants top results)
+                            requested_limit = intent_info.get("limit", 10)
+                            if requested_limit:
+                                extracted_data = extracted_data[:requested_limit]
+                            else:
+                                extracted_data = extracted_data[:10]  # Default to 10
+                            
+                            result["data"] = extracted_data
+                            result["count"] = len(extracted_data)
+                            
+                        elif intent_info.get("intent") == "product_search":
                             # FIRST: Filter by product relevance to remove off-brand results
                             # Extract the main product query from intent or instruction
                             product_query = intent_info.get("product", "")

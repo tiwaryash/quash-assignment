@@ -41,7 +41,13 @@ Transform user instructions into a JSON action plan that:
    - Example: "Show me 24/7 open medical shops in Thane"
    - Strategy: Navigate to Google Maps/Zomato/Swiggy → Search → Wait for results → Extract name, rating, location, url
 
-4. GENERAL BROWSING
+4. URL SEARCH
+   - Search on a website and get URLs of results
+   - Example: "Go to YouTube and search for a video and give me the URL"
+   - Example: "Search on Google and give me the first result URL"
+   - Strategy: Navigate → Type search → Click submit → Wait for results → Extract URLs (focus on first/top results)
+
+5. GENERAL BROWSING
    - Navigate, extract content, interact with pages
    - Strategy: Analyze instruction → Determine actions → Execute → Extract
 
@@ -203,6 +209,16 @@ LOCAL DISCOVERY:
 }
 Add "delivery_available" if delivery mentioned.
 
+URL SEARCH:
+{
+  "title": "selector for result title/name",
+  "url": "selector for result link (a[href])"
+}
+Focus on extracting URLs - use site-specific selectors:
+- YouTube: title: "#video-title", url: "a[href*='/watch']"
+- Google: title: "h3", url: "a[href*='http']"
+- Reddit: title: "h3", url: "a[href*='/r/']"
+
 FORM RESULT:
 {
   "status": "success|error",
@@ -253,6 +269,24 @@ LOCAL DISCOVERY (Google Maps):
 3. wait_for → result containers (div[role='article'], timeout: 20000)
 4. extract → name, rating, location, url
 
+URL SEARCH (YouTube, Google, etc.):
+1. navigate → website URL (e.g., https://www.youtube.com)
+2. type → search query (auto-presses Enter for YouTube, like Google Maps)
+3. wait_for → result containers (e.g., #contents ytd-video-renderer for YouTube, [data-ved] for Google)
+4. extract → title, url (focus on URLs, extract first 5-10 results)
+
+IMPORTANT FOR URL SEARCH:
+- Focus on extracting URLs from search results
+- Extract first 5-10 results (user usually wants top results)
+- Use site-specific selectors for result containers and links
+- For YouTube: NO click needed - type action auto-presses Enter (like Google Maps)
+  * Result containers: #contents ytd-video-renderer
+  * Links: a[href*='/watch'], #video-title-link
+  * Title: #video-title, a#video-title
+- For Google: click needed after type
+  * Result containers: [data-ved], .g
+  * Links: a[href*='http']
+
 **Location Query Optimization:**
 - User: "Pizza places near me" or "Find pizza in Indiranagar"
   * Query: "pizza restaurants Indiranagar Bangalore"
@@ -268,6 +302,10 @@ LOCAL DISCOVERY (Google Maps):
 - Google Maps: https://www.google.com/maps
 - Zomato: https://www.zomato.com
 - Swiggy: https://www.swiggy.com
+- YouTube: https://www.youtube.com
+- Google: https://www.google.com
+- Reddit: https://www.reddit.com
+- Twitter/X: https://twitter.com or https://x.com
 
 === ERROR HANDLING ===
 - System has automatic retries and fallback selectors
@@ -413,6 +451,56 @@ async def create_action_plan(instruction: str) -> list[dict]:
         context_parts.append("")
         context_parts.append("The analyze_form action will automatically detect all form fields and generate appropriate values (including temporary emails)")
         context_parts.append("The submit action automatically returns: submitted_url, redirected_url, form_data, response_data, and success/error messages")
+        
+    elif intent_info["intent"] == "url_search":
+        context_parts.append("Task: Search on a website and get URLs of results")
+        context_parts.append("Strategy: Navigate → Type search → Click submit → Wait for results → Extract URLs")
+        context_parts.append("")
+        context_parts.append("IMPORTANT: Focus on extracting URLs from search results")
+        context_parts.append("Extract first 5-10 results (user usually wants top results)")
+        context_parts.append("")
+        context_parts.append("SITE-SPECIFIC GUIDANCE:")
+        
+        # Detect which site user wants
+        instruction_lower = instruction.lower()
+        if "youtube" in instruction_lower:
+            context_parts.append("SITE: YouTube (https://www.youtube.com)")
+            context_parts.append("Search input: input[name='search_query'] or #search")
+            context_parts.append("IMPORTANT: YouTube auto-submits on Enter - NO click action needed after type")
+            context_parts.append("The type action will automatically press Enter (like Google Maps)")
+            context_parts.append("Result containers: #contents ytd-video-renderer")
+            context_parts.append("Extraction schema: {{'title': '#video-title, a#video-title', 'url': 'a[href*=\\'/watch\\'], #video-title-link'}}")
+            context_parts.append("Extract 5-10 video URLs")
+            context_parts.append("")
+            context_parts.append("ACTION SEQUENCE FOR YOUTUBE:")
+            context_parts.append("1. navigate → https://www.youtube.com")
+            context_parts.append("2. type → search query (Enter will be pressed automatically)")
+            context_parts.append("3. wait_for → #contents ytd-video-renderer (wait for video results)")
+            context_parts.append("4. extract → title, url (limit: 5-10)")
+            context_parts.append("")
+            context_parts.append("DO NOT add click action for YouTube - type action handles Enter automatically")
+        elif "google" in instruction_lower and "maps" not in instruction_lower:
+            context_parts.append("SITE: Google Search (https://www.google.com)")
+            context_parts.append("Search input: input[name='q'], textarea[name='q']")
+            context_parts.append("Search button: input[type='submit'], button[type='submit']")
+            context_parts.append("Result containers: [data-ved], .g")
+            context_parts.append("Extraction schema: {{'title': 'h3', 'url': 'a[href*=\\'http\\']'}}")
+            context_parts.append("Extract 5-10 search result URLs")
+        else:
+            context_parts.append("SITE: Generic (extract from instruction)")
+            context_parts.append("Use common search patterns:")
+            context_parts.append("- Search input: input[name='q'], input[type='search'], input[placeholder*='Search']")
+            context_parts.append("- Search button: button[type='submit'], button:has-text('Search')")
+            context_parts.append("- Result containers: Look for result cards/items")
+            context_parts.append("- Extraction schema: {{'title': 'h3, h2, .title', 'url': 'a[href]'}}")
+        
+        context_parts.append("")
+        context_parts.append("ACTION SEQUENCE:")
+        context_parts.append("1. navigate → website URL")
+        context_parts.append("2. type → search query")
+        context_parts.append("3. click → search button")
+        context_parts.append("4. wait_for → result containers")
+        context_parts.append("5. extract → title, url (limit: 5-10)")
         
     elif intent_info["intent"] == "local_discovery":
         context_parts.append("Task: Local discovery (finding restaurants, places, services)")

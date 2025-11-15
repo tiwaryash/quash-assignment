@@ -62,7 +62,15 @@ USER INSTRUCTION: "{instruction}"
    - Domain: "forms"
    - Extraction fields: ["status", "message", "redirect_url"]
 
-4. GENERAL
+4. URL_SEARCH
+   - User wants to search on a website and get URLs of results
+   - Examples: "Go to YouTube and search for a video and give me the URL", "Search on Google and give me the first result URL", "Find a video on YouTube and return the link"
+   - Keywords: "give me the url", "give me the link", "return the url", "get the url", "show me the url", "play" (when combined with search)
+   - Domain: "general"
+   - Extraction fields: ["title", "url"] (focus on URLs, minimal other data)
+   - Special handling: Extract URLs from search results, prioritize first/top results
+
+5. GENERAL
    - General browsing, navigation, extraction, or unclear intent
    - Examples: "Navigate to example.com", "Extract data from this page", vague or ambiguous queries
    - Domain: "general"
@@ -194,13 +202,14 @@ You must be precise and handle edge cases correctly. Always return valid, well-s
         
         # Validate and normalize the response
         intent = result.get("intent", "general")
-        if intent not in ["product_search", "local_discovery", "form_fill", "general"]:
+        if intent not in ["product_search", "local_discovery", "form_fill", "url_search", "general"]:
             intent = "general"
         
         domain = result.get("domain", {
             "product_search": "ecommerce",
             "local_discovery": "local",
             "form_fill": "forms",
+            "url_search": "general",
             "general": "general"
         }.get(intent, "general"))
         
@@ -224,6 +233,8 @@ You must be precise and handle edge cases correctly. Always return valid, well-s
                 extraction_fields = ["name", "rating", "location", "url"]
             elif intent == "form_fill":
                 extraction_fields = ["status", "message", "redirect_url"]
+            elif intent == "url_search":
+                extraction_fields = ["title", "url"]  # Focus on URLs
             else:
                 extraction_fields = ["title", "content", "url"]
         
@@ -240,6 +251,10 @@ You must be precise and handle edge cases correctly. Always return valid, well-s
             if "delivery" in instruction_lower:
                 if "delivery_available" not in extraction_fields:
                     extraction_fields.append("delivery_available")
+        elif intent == "url_search":
+            # Always prioritize URL extraction
+            if "url" not in extraction_fields and "link" not in extraction_fields:
+                extraction_fields = ["title", "url"]  # Ensure URL is always included
         
         # Validate and clean filters
         if isinstance(filters, dict):
@@ -328,10 +343,20 @@ def _classify_intent_rule_based(instruction: str) -> dict:
     # Detect intent type with priority scoring
     intent_scores = {
         "form_fill": 0,
+        "url_search": 0,
         "local_discovery": 0,
         "product_search": 0,
         "general": 0
     }
+    
+    # URL search - detect when user wants URLs from search
+    url_search_keywords = ['give me the url', 'give me the link', 'return the url', 'get the url', 'show me the url', 'give me url', 'give me link']
+    url_search_context = any(keyword in instruction_lower for keyword in url_search_keywords)
+    has_search_and_url = ('search' in instruction_lower or 'find' in instruction_lower) and ('url' in instruction_lower or 'link' in instruction_lower)
+    has_play_keyword = 'play' in instruction_lower and ('search' in instruction_lower or 'find' in instruction_lower)
+    
+    if url_search_context or has_search_and_url or has_play_keyword:
+        intent_scores["url_search"] += 15
     
     # Form fill - highest priority keywords (if present, usually means form)
     form_keywords = ['form', 'signup', 'register', 'sign up', 'sign in', 'login', 'submit', 'fill out']
@@ -421,6 +446,7 @@ def _classify_intent_rule_based(instruction: str) -> dict:
     domain = {
         "product_search": "ecommerce",
         "form_fill": "forms",
+        "url_search": "general",
         "local_discovery": "local",
         "general": "general"
     }[intent]
@@ -520,6 +546,8 @@ def _classify_intent_rule_based(instruction: str) -> dict:
             extraction_fields.append("delivery_available")
     elif intent == "form_fill":
         extraction_fields = ["status", "message", "redirect_url"]
+    elif intent == "url_search":
+        extraction_fields = ["title", "url"]  # Focus on URLs
     else:
         # General extraction - let LLM decide
         extraction_fields = ["title", "content", "url"]

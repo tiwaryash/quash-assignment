@@ -201,6 +201,41 @@ SITE_SELECTORS = {
             "a[data-value='url']",
             "[role='article'] a"
         ]
+    },
+    "youtube": {
+        "search_input": [
+            "input[name='search_query']",
+            "#search",
+            "input#search",
+            "input[placeholder*='Search']",
+            "input[aria-label*='Search']"
+        ],
+        "search_button": [
+            "button#search-icon-legacy",
+            "button[aria-label*='Search']",
+            "button[type='submit']",
+            "#search-icon-legacy"
+        ],
+        "result_container": [
+            "#contents ytd-video-renderer",
+            "#contents ytd-video-renderer, #contents ytd-playlist-renderer",
+            "#contents > *",
+            "ytd-video-renderer",
+            "#dismissible"
+        ],
+        "result_title": [
+            "#video-title",
+            "a#video-title",
+            "h3 a",
+            "#video-title-link",
+            "ytd-video-renderer #video-title"
+        ],
+        "result_link": [
+            "a[href*='/watch']",
+            "#video-title-link",
+            "ytd-video-renderer a[href*='/watch']",
+            "#contents a[href*='/watch']"
+        ]
     }
 }
 
@@ -213,7 +248,9 @@ def get_selectors_for_site(site_name: str = None) -> dict:
 def detect_site_from_url(url: str) -> str:
     """Detect which site from URL."""
     url_lower = url.lower()
-    if "flipkart" in url_lower:
+    if "youtube" in url_lower or "youtu.be" in url_lower:
+        return "youtube"
+    elif "flipkart" in url_lower:
         return "flipkart"
     elif "amazon" in url_lower:
         return "amazon"
