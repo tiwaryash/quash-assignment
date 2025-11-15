@@ -293,7 +293,7 @@ export default function ActionCard({ action, status, step, total, details, resul
                     
                     {/* Link - Enhanced display for URL search */}
                     {(item.link || item.url) && (
-                      <div className="mt-1.5 pt-1.5 border-t border-yellow-500/20">
+                      <div className="mt-1.5 pt-1.5 border-t border-blue-500/20">
                         <a 
                           href={item.link || item.url} 
                           target="_blank" 
@@ -301,7 +301,7 @@ export default function ActionCard({ action, status, step, total, details, resul
                           className={`group text-xs font-medium break-all inline-flex items-center gap-1.5 px-3 py-2 rounded border transition-all ${
                             action === 'extract' && result?.data?.some((d: any) => d.url && !d.price && !d.rating)
                               ? 'text-blue-400 hover:text-blue-300 bg-blue-500/10 border-blue-500/30 hover:border-blue-500/50 font-bold' // URL search - more prominent
-                              : 'text-yellow-500 hover:text-yellow-400 bg-yellow-500/5 border-yellow-500/30 hover:border-yellow-500/50' // Regular link
+                              : 'text-blue-400 hover:text-blue-300 bg-blue-500/5 border-blue-500/30 hover:border-blue-500/50' // Regular link - blue color
                           }`}
                           title={item.link || item.url}
                         >

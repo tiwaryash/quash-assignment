@@ -42,6 +42,15 @@ interface Message {
   alternatives?: string[];
   filters?: Array<{field: string; label: string; options: string[]; type: string}>;
   filter_summary?: string[];
+  warning?: boolean;
+  has_success?: boolean;
+  has_error?: boolean;
+  submitted_url?: string;
+  url_changed?: boolean;
+  redirected_url?: string;
+  form_data?: any;
+  response_data?: any;
+  messages?: Array<{type: string; text: string}>;
 }
 
 export default function ChatWindow() {
@@ -49,6 +58,7 @@ export default function ChatWindow() {
   const [input, setInput] = useState('');
   const [connected, setConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [shouldConnect, setShouldConnect] = useState(false);
   const [selectedClarifications, setSelectedClarifications] = useState<Set<string>>(new Set());
   const [selectedFilters, setSelectedFilters] = useState<Record<string, Record<string, string>>>({});
   const wsRef = useRef<WebSocket | null>(null);
@@ -63,6 +73,8 @@ export default function ChatWindow() {
   }, [messages]);
 
   useEffect(() => {
+    if (!shouldConnect) return;
+
     const connect = () => {
       const ws = new WebSocket('ws://localhost:8000/ws');
       
@@ -167,7 +179,7 @@ export default function ChatWindow() {
         wsRef.current.close();
       }
     };
-  }, []);
+  }, [shouldConnect]);
 
   const sendMessage = (clarificationValue?: string, clarificationType?: string) => {
     const messageToSend = clarificationValue || input.trim();
@@ -249,7 +261,7 @@ export default function ChatWindow() {
             <p className="text-yellow-500/60 mb-1 font-medium text-sm">Start by sending a natural language instruction</p>
             <p className="text-xs text-yellow-500/40 mb-4 font-medium">Backend server: port 8000</p>
             
-            <div className="flex flex-wrap gap-2 justify-center max-w-2xl mx-auto">
+            <div className="flex flex-wrap gap-2 justify-center max-w-2xl mx-auto mb-6">
               {exampleQueries.map((example, idx) => (
                 <button
                   key={idx}
@@ -263,6 +275,28 @@ export default function ChatWindow() {
                 </button>
               ))}
             </div>
+            
+            {!connected && (
+              <div className="flex justify-center mt-4">
+                <button
+                  onClick={() => setShouldConnect(true)}
+                  disabled={shouldConnect && !connected}
+                  className="group px-6 py-3 bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-400 hover:to-yellow-500 text-black font-black rounded-xl shadow-lg hover:shadow-yellow-500/50 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 border-2 border-yellow-400"
+                >
+                  {shouldConnect && !connected ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span>Connecting...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Wifi className="w-5 h-5 group-hover:scale-110 transition-transform" />
+                      <span>Connect to Server</span>
+                    </>
+                  )}
+                </button>
+              </div>
+            )}
           </div>
         )}
         
