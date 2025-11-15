@@ -968,10 +968,11 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                     
                     # Only for product search, check if we should ask for filter refinement
                     if intent_info.get("intent") == "product_search":
-                        # Step 1: Extract basic filter options from product names/URLs
+                        # Step 1: Extract basic filter options from product names (memory, storage, size - NO COLORS)
                         filter_options = extract_filter_options(result["data"])
                         
-                        # Step 2: Dynamically extract variants from product detail pages
+                        # Step 2: Dynamically extract variants (especially COLORS) from product detail pages
+                        # Colors should ONLY come from product pages, not from names/URLs
                         await websocket.send_json({
                             "type": "status",
                             "message": "Scanning product pages for available variants..."
@@ -985,13 +986,20 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                         ]
                         
                         # Extract variants from product pages (visit up to 5 pages)
+                        # NOTE: Colors are excluded - removed per user request
                         if product_urls and browser_agent.page:
                             from app.services.filter_results import extract_variants_from_product_pages
+                            
+                            # Extract variants from product pages (NO COLORS)
                             page_variants = await extract_variants_from_product_pages(
                                 browser_agent, 
                                 product_urls, 
                                 max_pages=5
                             )
+                            
+                            # Remove colors from page_variants if present
+                            if "colors" in page_variants:
+                                del page_variants["colors"]
                             
                             # Merge page variants with name-based filters
                             for key in filter_options:
@@ -999,9 +1007,9 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                                     # Combine both sets (remove duplicates)
                                     filter_options[key] = list(set(filter_options[key] + page_variants[key]))
                             
-                            # Also add any new keys from page variants
+                            # Also add any new keys from page variants (except colors)
                             for key in page_variants:
-                                if key not in filter_options:
+                                if key != "colors" and key not in filter_options:
                                     filter_options[key] = page_variants[key]
                         
                         # Check if we have multiple variants to offer

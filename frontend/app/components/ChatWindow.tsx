@@ -489,20 +489,20 @@ export default function ChatWindow() {
           
           if (msg.type === 'filter_options') {
             const filterId = `filter-${msg.timestamp}`;
-            const isFrozen = selectedClarifications.has(filterId);
             const currentFilters = selectedFilters[filterId] || {};
+            const hasActiveFilters = Object.values(currentFilters).some(v => v);
             
             return (
               <div key={idx} className="animate-slide-in-left">
-                <div className={`bg-black/50 border-2 border-yellow-500/50 rounded-2xl p-5 ${isFrozen ? 'opacity-60' : 'yellow-glow'}`}>
+                <div className="bg-black/50 border-2 border-yellow-500/50 rounded-2xl p-5 yellow-glow">
                   <div className="flex items-center gap-3 mb-4">
                     <div className="bg-yellow-500/20 p-2 rounded-xl">
                       <ListChecks className="w-6 h-6 text-yellow-500" />
                     </div>
                     <span className="font-black text-yellow-500 text-lg">Filter Options</span>
-                    {isFrozen && (
+                    {hasActiveFilters && (
                       <span className="ml-auto text-xs bg-yellow-500/20 text-yellow-500 px-3 py-1.5 rounded-full font-bold border border-yellow-500/30">
-                        Applied
+                        {Object.values(currentFilters).filter(v => v).length} active
                       </span>
                     )}
                   </div>
@@ -538,7 +538,6 @@ export default function ChatWindow() {
                                   <button
                                     key={optIdx}
                                     onClick={() => {
-                                      if (isFrozen) return;
                                       setSelectedFilters(prev => ({
                                         ...prev,
                                         [filterId]: {
@@ -547,12 +546,9 @@ export default function ChatWindow() {
                                         }
                                       }));
                                     }}
-                                    disabled={isFrozen}
                                     className={`px-4 py-2 rounded-lg text-sm font-semibold border-2 transition-all ${
                                       isOptionSelected
                                         ? 'bg-yellow-500/20 border-yellow-500 text-yellow-500'
-                                        : isFrozen
-                                        ? 'bg-black/30 border-yellow-500/20 text-yellow-500/40 cursor-not-allowed'
                                         : 'bg-black/50 hover:bg-yellow-500/10 border-yellow-500/30 hover:border-yellow-500/60 text-yellow-400 hover:text-yellow-500'
                                     }`}
                                   >
@@ -576,10 +572,22 @@ export default function ChatWindow() {
                   )}
                   
                   <div className="flex gap-2 pt-4 border-t border-yellow-500/30">
+                    {hasActiveFilters && (
+                      <button
+                        onClick={() => {
+                          // Clear all filters
+                          setSelectedFilters(prev => ({
+                            ...prev,
+                            [filterId]: {}
+                          }));
+                        }}
+                        className="px-5 py-3 rounded-xl text-sm font-black transition-all bg-black/50 hover:bg-red-500/10 border-2 border-red-500/30 hover:border-red-500/60 text-red-400 hover:text-red-500"
+                      >
+                        Clear All
+                      </button>
+                    )}
                     <button
                       onClick={() => {
-                        if (isFrozen) return;
-                        
                         // Build filter selection string
                         const filterParts: string[] = [];
                         Object.entries(currentFilters).forEach(([field, value]) => {
@@ -592,20 +600,10 @@ export default function ChatWindow() {
                           ? filterParts.join(' ') 
                           : 'skip';
                         
-                        setSelectedClarifications(prev => {
-                          const newSet = new Set(prev);
-                          newSet.add(filterId);
-                          return newSet;
-                        });
-                        
+                        // Don't freeze - allow re-filtering
                         sendMessage(filterString, 'product_filter_refinement');
                       }}
-                      disabled={isFrozen}
-                      className={`flex-1 px-5 py-3 rounded-xl text-sm font-black transition-all ${
-                        isFrozen
-                          ? 'bg-black/30 border-2 border-yellow-500/20 text-yellow-500/40 cursor-not-allowed'
-                          : 'bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-400 hover:to-yellow-500 text-black border-2 border-yellow-400'
-                      }`}
+                      className="flex-1 px-5 py-3 rounded-xl text-sm font-black transition-all bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-400 hover:to-yellow-500 text-black border-2 border-yellow-400"
                     >
                       {Object.values(currentFilters).some(v => v) ? 'Apply Filters' : 'Skip (Show All)'}
                     </button>

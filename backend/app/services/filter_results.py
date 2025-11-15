@@ -102,18 +102,14 @@ def get_top_results(results: list, limit: int = None) -> list:
 def extract_filter_options(results: list) -> dict:
     """Extract available filter options from product results.
     
-    Analyzes product names and details to identify available options like:
-    - Color options
-    - Memory/Storage options
-    - Size options
-    - Other variant options
+    NOTE: This function only extracts memory/storage/size from product names.
+    Colors should ONLY be extracted from product detail pages, not from names/URLs.
     
-    Returns a dict with consolidated filter options.
+    Returns a dict with consolidated filter options (excluding colors - those come from pages).
     """
     import re
     
     filter_options = {
-        "colors": set(),
         "memory": set(),
         "storage": set(),
         "size": set(),
@@ -130,65 +126,16 @@ def extract_filter_options(results: list) -> dict:
     # Size patterns (for clothes, shoes, etc.)
     size_pattern = r'\b(XS|S|M|L|XL|XXL|\d+\.?\d*\s*(inch|inches|"|cm))\b'
     
-    # Color keywords to identify color mentions (but don't hardcode specific colors)
-    # These are just patterns to detect if something might be a color
-    color_keywords = [
-        'black', 'white', 'red', 'blue', 'green', 'yellow', 'orange', 'purple', 
-        'pink', 'brown', 'gray', 'grey', 'silver', 'gold', 'midnight', 'starlight', 
-        'space', 'graphite', 'titanium', 'alpine', 'sierra', 'deep', 'natural',
-        'rose', 'jet', 'titanium'
-    ]
-    
     for item in results:
         name = item.get('name', '')
-        url = item.get('url', '') or item.get('link', '')
         
         if not name:
             continue
         
         name_lower = name.lower()
-        url_lower = str(url).lower() if url else ''
         
-        # Extract colors dynamically from product names and URLs
-        # Look for color patterns in product names (e.g., "MacBook Air M2 Space Gray")
-        # Use regex to find color-like words, but only if they actually appear
-        color_patterns = [
-            r'\b(space\s*gray|space\s*grey|midnight|starlight|silver|gold|graphite|titanium|alpine\s*green|sierra\s*blue|deep\s*purple|natural\s*titanium|blue\s*titanium|white\s*titanium|rose\s*gold|jet\s*black)\b',
-            r'\b(black|white|red|blue|green|yellow|orange|purple|pink|brown|gray|grey)\b'
-        ]
-        
-        for pattern in color_patterns:
-            matches = re.findall(pattern, name_lower, re.IGNORECASE)
-            for match in matches:
-                if isinstance(match, tuple):
-                    color_str = ' '.join(match).strip()
-                else:
-                    color_str = match.strip()
-                
-                # Only add if it's actually a meaningful color mention
-                # Check if any color keyword is in the match
-                if color_str and any(keyword in color_str.lower() for keyword in color_keywords):
-                    # Capitalize properly
-                    if ' ' in color_str:
-                        filter_options["colors"].add(color_str.title())
-                    else:
-                        filter_options["colors"].add(color_str.capitalize())
-        
-        # Also check URL for color mentions (but be more conservative)
-        if url:
-            # Look for color patterns in URL
-            url_color_matches = re.findall(r'\b(space\s*gray|space\s*grey|midnight|starlight|silver|gold|graphite|titanium|black|white|red|blue|green|yellow|orange|purple|pink|brown|gray|grey)\b', url_lower, re.IGNORECASE)
-            for match in url_color_matches:
-                if isinstance(match, tuple):
-                    color_str = ' '.join(match).strip()
-                else:
-                    color_str = match.strip()
-                
-                if color_str and any(keyword in color_str.lower() for keyword in color_keywords):
-                    if ' ' in color_str:
-                        filter_options["colors"].add(color_str.title())
-                    else:
-                        filter_options["colors"].add(color_str.capitalize())
+        # DO NOT extract colors from names/URLs - colors must come from product pages only
+        # This prevents false positives like "blue" in "bluetooth" or "red" in "reduced"
         
         # Extract memory/storage
         memory_matches = re.findall(memory_pattern, name, re.IGNORECASE)
@@ -236,12 +183,12 @@ def consolidate_filter_options(filter_options: dict) -> list:
     
     Returns a list of filter dictionaries ready to be presented to the user.
     Only includes options that actually exist in the products.
+    NOTE: Colors are excluded - removed per user request.
     """
     consolidated = []
     
     # Map internal keys to user-friendly labels
     filter_labels = {
-        "colors": "Color",
         "memory": "Memory",
         "storage": "Storage",
         "size": "Size",
@@ -250,6 +197,10 @@ def consolidate_filter_options(filter_options: dict) -> list:
     }
     
     for key, values in filter_options.items():
+        # Skip colors - removed per user request
+        if key == "colors":
+            continue
+        
         # Only show if we have actual values (not empty) and multiple options
         # This ensures we only show filters for options that actually exist
         if values and len(values) > 1:
@@ -318,6 +269,7 @@ def filter_by_product_relevance(results: list, query: str) -> list:
     
     return filtered if filtered else results
 
+
 async def extract_variants_from_product_pages(browser_agent, product_urls: list, max_pages: int = 5) -> dict:
     """Dynamically extract available color/variant options by visiting product detail pages.
     
@@ -336,7 +288,6 @@ async def extract_variants_from_product_pages(browser_agent, product_urls: list,
         return {}
     
     variant_options = {
-        "colors": set(),
         "storage": set(),
         "memory": set(),
         "ram": set(),
@@ -360,27 +311,11 @@ async def extract_variants_from_product_pages(browser_agent, product_urls: list,
             page_variants = await browser_agent.page.evaluate("""
                 () => {
                     const variants = {
-                        colors: [],
                         storage: [],
                         memory: [],
                         ram: [],
                         size: []
                     };
-                    
-                    // Common selectors for color/variant options
-                    // Flipkart: color swatches, variant buttons
-                    const colorSelectors = [
-                        '._3V2wfe', // Flipkart color swatch
-                        '[class*="color"]',
-                        '[class*="Color"]',
-                        '[class*="variant"]',
-                        '[class*="Variant"]',
-                        'button[class*="color"]',
-                        'div[class*="swatch"]',
-                        '[data-color]',
-                        '[aria-label*="color"]',
-                        '[aria-label*="Color"]'
-                    ];
                     
                     // Storage/Memory selectors
                     const storageSelectors = [
@@ -393,36 +328,6 @@ async def extract_variants_from_product_pages(browser_agent, product_urls: list,
                         'button[class*="storage"]',
                         'button[class*="memory"]'
                     ];
-                    
-                    // Try to find color options
-                    for (const selector of colorSelectors) {
-                        try {
-                            const elements = document.querySelectorAll(selector);
-                            elements.forEach(el => {
-                                const text = el.textContent?.trim() || '';
-                                const title = el.getAttribute('title') || '';
-                                const ariaLabel = el.getAttribute('aria-label') || '';
-                                const dataColor = el.getAttribute('data-color') || '';
-                                
-                                // Extract color from any of these attributes
-                                const colorText = text || title || ariaLabel || dataColor;
-                                if (colorText && colorText.length > 0 && colorText.length < 50) {
-                                    // Check if it looks like a color
-                                    const colorLower = colorText.toLowerCase();
-                                    const colorKeywords = ['black', 'white', 'red', 'blue', 'green', 'yellow', 
-                                                          'orange', 'purple', 'pink', 'brown', 'gray', 'grey', 
-                                                          'silver', 'gold', 'midnight', 'starlight', 'space', 
-                                                          'graphite', 'titanium', 'alpine', 'sierra', 'deep'];
-                                    
-                                    if (colorKeywords.some(keyword => colorLower.includes(keyword))) {
-                                        variants.colors.push(colorText);
-                                    }
-                                }
-                            });
-                        } catch (e) {
-                            continue;
-                        }
-                    }
                     
                     // Try to find storage/memory options
                     for (const selector of storageSelectors) {
@@ -446,24 +351,6 @@ async def extract_variants_from_product_pages(browser_agent, product_urls: list,
                             });
                         } catch (e) {
                             continue;
-                        }
-                    }
-                    
-                    // Also check page text for variant mentions
-                    const pageText = document.body.textContent?.toLowerCase() || '';
-                    const colorPatterns = [
-                        /(space\s*gray|space\s*grey|midnight|starlight|silver|gold|graphite|titanium)/gi,
-                        /(black|white|red|blue|green|yellow|orange|purple|pink|brown|gray|grey)/gi
-                    ];
-                    
-                    for (const pattern of colorPatterns) {
-                        const matches = pageText.match(pattern);
-                        if (matches) {
-                            matches.forEach(match => {
-                                if (match && match.length > 0) {
-                                    variants.colors.push(match.trim());
-                                }
-                            });
                         }
                     }
                     
@@ -525,34 +412,11 @@ def apply_variant_filters(results: list, filters: dict) -> list:
             
             filter_value_lower = str(filter_value).lower()
             
-            # Normalize filter key (handle both "color" and "colors")
-            if filter_key == "color":
-                filter_key = "colors"
+            # Skip color filters - removed per user request
+            if filter_key in ["color", "colors"]:
+                continue
             
-            # Check if the filter value appears in the product name or URL
-            if filter_key == "colors":
-                # For colors, check both name and URL
-                # Also handle variations like "space gray" vs "spacegray"
-                color_normalized = filter_value_lower.replace(' ', '')
-                name_normalized = name.replace(' ', '')
-                url_normalized = url.replace(' ', '')
-                
-                # Check exact match or partial match
-                if (filter_value_lower not in name and 
-                    color_normalized not in name_normalized and
-                    filter_value_lower not in url and
-                    color_normalized not in url_normalized):
-                    # Try word-by-word matching for multi-word colors
-                    color_words = filter_value_lower.split()
-                    if len(color_words) > 1:
-                        # For "space gray", check if both words appear
-                        if not all(word in name or word in url for word in color_words):
-                            matches = False
-                            break
-                    else:
-                        matches = False
-                        break
-            elif filter_key in ['memory', 'storage', 'ram']:
+            if filter_key in ['memory', 'storage', 'ram']:
                 # For memory/storage, be more flexible (e.g., "256GB" matches "256 GB")
                 match = re.search(r'(\d+)\s*(gb|tb)', filter_value_lower)
                 if match:
