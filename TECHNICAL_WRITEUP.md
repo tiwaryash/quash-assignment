@@ -339,7 +339,7 @@ class NewProvider(LLMProvider):
 
 ## Next Steps
 
-### Short-term (1-2 months)
+### Short-term
 
 **1. Enhanced Error Messages**
 - More specific error descriptions
@@ -356,7 +356,7 @@ class NewProvider(LLMProvider):
 - Integration tests for full workflows
 - Performance benchmarks
 
-### Medium-term (3-6 months)
+### Medium-term
 
 **1. Advanced Features**
 - Conditional branching in action plans
@@ -373,7 +373,7 @@ class NewProvider(LLMProvider):
 - Distributed tracing (OpenTelemetry)
 - Alert system for failures
 
-### Long-term (6-12 months)
+### Long-term 
 
 **1. AI Improvements**
 - Fine-tuned models for planning
