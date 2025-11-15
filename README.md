@@ -722,11 +722,11 @@ quash_assignment/
 
 | Requirement | Implementation | Status |
 |------------|----------------|--------|
-| **1. Natural Language Understanding** | Intent classification + LLM planning | ✅ **Implemented** |
-| **2. Browser Automation Engine** | Playwright with robust waits and fallbacks | ✅ **Implemented** |
-| **3. Conversational Interface** | WebSocket-based chat with action cards | ✅ **Implemented** |
-| **4. AI-Powered Reasoning** | GPT-4o-mini with modular prompts | ✅ **Implemented** |
-| **5. Robust Architecture** | 5-layer clean architecture | ✅ **Implemented** |
+| **1. Natural Language Understanding** | Intent classification + LLM planning |  **Implemented** |
+| **2. Browser Automation Engine** | Playwright with robust waits and fallbacks |  **Implemented** |
+| **3. Conversational Interface** | WebSocket-based chat with action cards |  **Implemented** |
+| **4. AI-Powered Reasoning** | GPT-4o-mini with modular prompts |  **Implemented** |
+| **5. Robust Architecture** | 5-layer clean architecture |  **Implemented** |
 
 ### Example User Journeys
 
