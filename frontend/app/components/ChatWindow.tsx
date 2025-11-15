@@ -40,6 +40,8 @@ interface Message {
   clarification_type?: string;
   block_type?: string;
   alternatives?: string[];
+  filters?: Array<{field: string; label: string; options: string[]; type: string}>;
+  filter_summary?: string[];
 }
 
 export default function ChatWindow() {
@@ -48,6 +50,7 @@ export default function ChatWindow() {
   const [connected, setConnected] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedClarifications, setSelectedClarifications] = useState<Set<string>>(new Set());
+  const [selectedFilters, setSelectedFilters] = useState<Record<string, Record<string, string>>>({});
   const wsRef = useRef<WebSocket | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
@@ -83,6 +86,11 @@ export default function ChatWindow() {
           setIsLoading(false);
         }
         
+        // Also clear loading when filter action completes (filter actions may not have step numbers)
+        if (data.type === 'action_status' && data.action === 'filter' && data.status === 'completed') {
+          setIsLoading(false);
+        }
+        
         // For action_status messages, replace existing card for the same step instead of adding new one
         if (data.type === 'action_status' && data.step !== undefined) {
           setMessages(prev => {
@@ -96,6 +104,22 @@ export default function ChatWindow() {
               return true; // Keep this message
             });
             // Add the new/updated card
+            return [...filtered, {
+              ...data,
+              timestamp: Date.now()
+            }];
+          });
+        } else if (data.type === 'action_status' && data.action === 'filter') {
+          // Filter actions don't have step numbers, so handle them separately
+          setMessages(prev => {
+            // Remove any existing filter action_status messages
+            const filtered = prev.filter(msg => {
+              if (msg.type === 'action_status' && msg.action === 'filter') {
+                return false; // Remove existing filter messages
+              }
+              return true;
+            });
+            // Add the new filter result
             return [...filtered, {
               ...data,
               timestamp: Date.now()
@@ -458,6 +482,134 @@ export default function ChatWindow() {
                       </ul>
                     </div>
                   )}
+                </div>
+              </div>
+            );
+          }
+          
+          if (msg.type === 'filter_options') {
+            const filterId = `filter-${msg.timestamp}`;
+            const isFrozen = selectedClarifications.has(filterId);
+            const currentFilters = selectedFilters[filterId] || {};
+            
+            return (
+              <div key={idx} className="animate-slide-in-left">
+                <div className={`bg-black/50 border-2 border-yellow-500/50 rounded-2xl p-5 ${isFrozen ? 'opacity-60' : 'yellow-glow'}`}>
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="bg-yellow-500/20 p-2 rounded-xl">
+                      <ListChecks className="w-6 h-6 text-yellow-500" />
+                    </div>
+                    <span className="font-black text-yellow-500 text-lg">Filter Options</span>
+                    {isFrozen && (
+                      <span className="ml-auto text-xs bg-yellow-500/20 text-yellow-500 px-3 py-1.5 rounded-full font-bold border border-yellow-500/30">
+                        Applied
+                      </span>
+                    )}
+                  </div>
+                  
+                  {msg.message && (
+                    <div className="text-sm text-yellow-300 mb-4 font-medium">
+                      {msg.message}
+                    </div>
+                  )}
+                  
+                  {msg.filter_summary && msg.filter_summary.length > 0 && (
+                    <div className="mb-4 space-y-1">
+                      {msg.filter_summary.map((summary: string, sumIdx: number) => (
+                        <div key={sumIdx} className="text-xs text-yellow-400/80 font-medium bg-black/30 px-3 py-2 rounded-lg border border-yellow-500/20">
+                          {summary}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {msg.filters && msg.filters.length > 0 && (
+                    <div className="space-y-4 mb-4">
+                      {msg.filters.map((filter: {field: string; label: string; options: string[]; type: string}, filterIdx: number) => (
+                          <div key={filterIdx} className="space-y-2">
+                            <div className="text-xs font-black text-yellow-500 uppercase tracking-wide">
+                              {filter.label}
+                            </div>
+                            <div className="flex flex-wrap gap-2">
+                              {filter.options.map((option: string, optIdx: number) => {
+                                const isOptionSelected = currentFilters[filter.field] === option;
+                                
+                                return (
+                                  <button
+                                    key={optIdx}
+                                    onClick={() => {
+                                      if (isFrozen) return;
+                                      setSelectedFilters(prev => ({
+                                        ...prev,
+                                        [filterId]: {
+                                          ...prev[filterId],
+                                          [filter.field]: isOptionSelected ? '' : option
+                                        }
+                                      }));
+                                    }}
+                                    disabled={isFrozen}
+                                    className={`px-4 py-2 rounded-lg text-sm font-semibold border-2 transition-all ${
+                                      isOptionSelected
+                                        ? 'bg-yellow-500/20 border-yellow-500 text-yellow-500'
+                                        : isFrozen
+                                        ? 'bg-black/30 border-yellow-500/20 text-yellow-500/40 cursor-not-allowed'
+                                        : 'bg-black/50 hover:bg-yellow-500/10 border-yellow-500/30 hover:border-yellow-500/60 text-yellow-400 hover:text-yellow-500'
+                                    }`}
+                                  >
+                                    {option}
+                                    {isOptionSelected && (
+                                      <CheckCircle2 className="w-3.5 h-3.5 inline-block ml-2" />
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  {msg.question && (
+                    <div className="text-sm text-yellow-300 mb-4 font-medium">
+                      {msg.question}
+                    </div>
+                  )}
+                  
+                  <div className="flex gap-2 pt-4 border-t border-yellow-500/30">
+                    <button
+                      onClick={() => {
+                        if (isFrozen) return;
+                        
+                        // Build filter selection string
+                        const filterParts: string[] = [];
+                        Object.entries(currentFilters).forEach(([field, value]) => {
+                          if (value) {
+                            filterParts.push(value);
+                          }
+                        });
+                        
+                        const filterString = filterParts.length > 0 
+                          ? filterParts.join(' ') 
+                          : 'skip';
+                        
+                        setSelectedClarifications(prev => {
+                          const newSet = new Set(prev);
+                          newSet.add(filterId);
+                          return newSet;
+                        });
+                        
+                        sendMessage(filterString, 'product_filter_refinement');
+                      }}
+                      disabled={isFrozen}
+                      className={`flex-1 px-5 py-3 rounded-xl text-sm font-black transition-all ${
+                        isFrozen
+                          ? 'bg-black/30 border-2 border-yellow-500/20 text-yellow-500/40 cursor-not-allowed'
+                          : 'bg-gradient-to-r from-yellow-500 to-yellow-600 hover:from-yellow-400 hover:to-yellow-500 text-black border-2 border-yellow-400'
+                      }`}
+                    >
+                      {Object.values(currentFilters).some(v => v) ? 'Apply Filters' : 'Skip (Show All)'}
+                    </button>
+                  </div>
                 </div>
               </div>
             );

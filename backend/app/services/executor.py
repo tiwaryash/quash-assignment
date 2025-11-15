@@ -1,7 +1,14 @@
 from fastapi import WebSocket
 from app.services.ai_planner import create_action_plan
 from app.services.browser_agent import browser_agent
-from app.services.filter_results import filter_by_price, get_top_results
+from app.services.filter_results import (
+    filter_by_price, 
+    get_top_results, 
+    extract_filter_options, 
+    consolidate_filter_options,
+    apply_variant_filters,
+    filter_by_product_relevance
+)
 from app.services.conversation import conversation_manager
 import json
 import re
@@ -28,6 +35,66 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
         if is_clarification_response:
             clarification_result = conversation_manager.process_clarification_response(instruction, session_id)
             if clarification_result.get("clarification_resolved"):
+                # Check if this is a filter refinement response
+                if clarification_result.get("apply_filters"):
+                    filter_selections = clarification_result.get("filter_selections", {})
+                    
+                    # Apply filters to stored results
+                    if session_id in manager.session_states:
+                        stored_results = manager.session_states[session_id].get("extracted_results", [])
+                        
+                        if stored_results:
+                            # Apply variant filters
+                            filtered_results = apply_variant_filters(stored_results, filter_selections)
+                            
+                            if filtered_results:
+                                await websocket.send_json({
+                                    "type": "status",
+                                    "message": f"Applied filters. Found {len(filtered_results)} matching products."
+                                })
+                                
+                                # Send filtered results
+                                await websocket.send_json({
+                                    "type": "action_status",
+                                    "action": "filter",
+                                    "status": "completed",
+                                    "result": {
+                                        "status": "success",
+                                        "data": filtered_results,
+                                        "count": len(filtered_results),
+                                        "filters_applied": filter_selections
+                                    }
+                                })
+                            else:
+                                await websocket.send_json({
+                                    "type": "status",
+                                    "message": f"No products match the selected filters. Showing all {len(stored_results)} products."
+                                })
+                                
+                                # Send original results
+                                await websocket.send_json({
+                                    "type": "action_status",
+                                    "action": "filter",
+                                    "status": "completed",
+                                    "result": {
+                                        "status": "success",
+                                        "data": stored_results,
+                                        "count": len(stored_results),
+                                        "filters_applied": filter_selections,
+                                        "message": "No exact matches found"
+                                    }
+                                })
+                            
+                            # Send completion message to clear loading state
+                            await websocket.send_json({
+                                "type": "status",
+                                "message": "Execution completed"
+                            })
+                            
+                            conversation_manager.clear_clarification(session_id)
+                            return
+                
+                # Regular clarification response
                 instruction = clarification_result["updated_instruction"]
                 conversation_manager.clear_clarification(session_id)
                 await websocket.send_json({
@@ -723,6 +790,27 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                         
                         # Apply filters based on intent
                         if intent_info.get("intent") == "product_search":
+                            # FIRST: Filter by product relevance to remove off-brand results
+                            # Extract the main product query from intent or instruction
+                            product_query = intent_info.get("product", "")
+                            if not product_query:
+                                # Try to extract from original instruction
+                                from app.api.websocket import manager
+                                original_instruction = manager.session_states.get(session_id, {}).get("original_instruction", instruction)
+                                product_query = original_instruction
+                            
+                            # Apply relevance filter
+                            extracted_data = filter_by_product_relevance(extracted_data, product_query)
+                            
+                            if len(extracted_data) < len(result["data"]):
+                                # Log that we filtered out irrelevant results
+                                filtered_count = len(result["data"]) - len(extracted_data)
+                                await websocket.send_json({
+                                    "type": "status",
+                                    "message": f"Filtered out {filtered_count} irrelevant results"
+                                })
+                            
+                            # Continue with price/rating filters
                             filters = intent_info.get("filters", {})
                             
                             # Price filtering - ensure prices are parsed first
@@ -873,6 +961,75 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                     "result": result,
                     "details": action  # Include original action details
                 })
+                
+                # FEATURE: Extract filter options after product extraction
+                if action_type == "extract" and result.get("status") == "success" and result.get("data"):
+                    intent_info = action.get("_intent", {})
+                    
+                    # Only for product search, check if we should ask for filter refinement
+                    if intent_info.get("intent") == "product_search":
+                        # Extract available filter options from results
+                        filter_options = extract_filter_options(result["data"])
+                        
+                        # Check if we have multiple variants to offer
+                        if filter_options:
+                            consolidated_filters = consolidate_filter_options(filter_options)
+                            
+                            # Debug: Log what filters we found
+                            await websocket.send_json({
+                                "type": "status",
+                                "message": f"Detected filter options: {', '.join([f'{k}: {len(v)}' for k, v in filter_options.items()])}"
+                            })
+                            
+                            # Only ask if there are meaningful filters (at least 1 filter with 2+ options)
+                            if consolidated_filters and len(consolidated_filters) > 0:
+                                # Store results in session for later filtering
+                                from app.api.websocket import manager
+                                if session_id not in manager.session_states:
+                                    manager.session_states[session_id] = {}
+                                
+                                manager.session_states[session_id]["extracted_results"] = result["data"]
+                                manager.session_states[session_id]["available_filters"] = filter_options
+                                manager.session_states[session_id]["original_instruction"] = instruction
+                                
+                                # Build filter question summary
+                                filter_summary = []
+                                for f in consolidated_filters[:3]:  # Limit to top 3 most relevant filters
+                                    options_str = ', '.join(f['options'][:5])  # Show first 5 options
+                                    if len(f['options']) > 5:
+                                        options_str += f" (+{len(f['options']) - 5} more)"
+                                    filter_summary.append(f"{f['label']}: {options_str}")
+                                
+                                # Send clarification asking for filter preferences
+                                await websocket.send_json({
+                                    "type": "filter_options",
+                                    "message": f"Found {len(result['data'])} products with multiple options available:",
+                                    "filters": consolidated_filters,
+                                    "filter_summary": filter_summary,
+                                    "question": "Would you like to filter by any specific option? (e.g., '256GB Silver' or 'skip' to see all)",
+                                    "context": "product_filter_refinement"
+                                })
+                                
+                                # Store clarification in conversation manager
+                                conversation_manager.store_clarification({
+                                    "type": "filter_refinement",
+                                    "filters": consolidated_filters,
+                                    "field": "product_filters",
+                                    "context": "product_filter_refinement"
+                                }, instruction, session_id)
+                                
+                                # DON'T return early - let the execution complete first
+                                # The user can respond with filter preferences afterward
+                            else:
+                                await websocket.send_json({
+                                    "type": "status",
+                                    "message": "No variant options detected (all products are similar)"
+                                })
+                        else:
+                            await websocket.send_json({
+                                "type": "status",
+                                "message": "No filterable options found in product names"
+                            })
                 
                 # If error, show helpful message but continue if it's a selector issue
                 if result.get("status") == "error":

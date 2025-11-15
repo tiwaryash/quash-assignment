@@ -19,6 +19,7 @@ Transform user instructions into a JSON action plan that:
 2. Creates robust action sequences with proper waits and error handling
 3. Generates extraction schemas that return structured JSON data
 4. Handles multiple task types: product search, form filling, local discovery, general browsing
+5. **GENERATES OPTIMIZED SEARCH QUERIES** for each site that fetch precise, on-point results
 
 === TASK TYPES ===
 
@@ -52,10 +53,17 @@ Transform user instructions into a JSON action plan that:
    - Wait for page load (system handles networkidle/domcontentloaded)
 
 2. type
-   {"action": "type", "selector": "input[name='q']", "text": "search query"}
+   {"action": "type", "selector": "input[name='q']", "text": "optimized search query"}
    - Types text into input field
    - For Google Maps: Automatically presses Enter after typing
    - Use stable selectors: id > name > placeholder > class
+   - **IMPORTANT**: Generate an optimized, site-specific search query in the "text" field
+   - Query should be concise, precise, and tailored to the target site's search algorithm
+   - Examples:
+     * User: "Find me the cheapest MacBook Air 13 inch under 1 lakh on Flipkart"
+       Query for Flipkart: "MacBook Air 13 inch M2"
+     * User: "Best pizza places in Indiranagar"
+       Query for Google Maps: "pizza restaurants Indiranagar Bangalore"
 
 3. click
    {"action": "click", "selector": "button[type='submit']"}
@@ -96,7 +104,19 @@ Transform user instructions into a JSON action plan that:
 
 === CRITICAL PLANNING PRINCIPLES ===
 
-1. ROBUST WAITS & SELECTORS
+1. OPTIMIZED SEARCH QUERIES (NEW FEATURE)
+   - For each site, generate a tailored search query that maximizes result quality
+   - Consider site-specific search behavior and best practices
+   - Examples:
+     * Flipkart: "MacBook Air M2 13 inch" (include model, variant details)
+     * Amazon: "MacBook Air 13-inch 2023 M2" (include year, specific model)
+     * Google Maps: "pizza restaurants Indiranagar Bangalore" (include type + area + city)
+   - Extract the core product/place name and relevant details from user query
+   - Remove unnecessary words like "find", "search for", "best", "cheapest"
+   - Keep essential details: brand, model, size, location
+   - Each site should get its own optimized query in the "text" field of type action
+
+2. ROBUST WAITS & SELECTORS
    - Always wait_for results before extracting
    - Use container selectors (e.g., [data-id], div[role='article']) not individual elements
    - Prefer stable selectors: data-testid > role > id > name > class
@@ -190,11 +210,19 @@ FORM RESULT:
 PRODUCT SEARCH:
 1. navigate → e-commerce site URL
 2. wait_for → search input (optional, but good practice)
-3. type → search query
+3. type → **OPTIMIZED search query for this specific site**
 4. click → submit button OR type action handles Enter
 5. wait_for → product containers (e.g., [data-id])
 6. scroll → (optional, to load more)
 7. extract → with schema and limit (20+ for filtering)
+
+**Query Optimization Examples:**
+- User: "Find MacBook Air under 1 lakh"
+  * Flipkart query: "MacBook Air M2 13"
+  * Amazon query: "MacBook Air 13 inch 2023"
+- User: "Gaming laptops with RTX 4060"
+  * Flipkart query: "gaming laptop RTX 4060"
+  * Amazon query: "gaming laptop NVIDIA RTX 4060"
 
 FORM FILLING:
 1. navigate → form page URL
@@ -207,9 +235,16 @@ FORM FILLING:
 
 LOCAL DISCOVERY (Google Maps):
 1. navigate → https://www.google.com/maps
-2. type → search query (auto-presses Enter)
+2. type → **OPTIMIZED location search query** (auto-presses Enter)
 3. wait_for → result containers (div[role='article'], timeout: 20000)
 4. extract → name, rating, location, url
+
+**Location Query Optimization:**
+- User: "Pizza places near me" or "Find pizza in Indiranagar"
+  * Query: "pizza restaurants Indiranagar Bangalore"
+- User: "24/7 medical shops in Koramangala"
+  * Query: "24 hour pharmacy Koramangala Bangalore"
+- Include: business type + neighborhood + city for best results
 
 === SITE-SPECIFIC URLS ===
 - Flipkart: https://www.flipkart.com
@@ -242,7 +277,38 @@ CRITICAL:
 - All actions must be in the "actions" array
 - Use real URLs, not placeholders
 - Include proper waits before extraction
-- Extract MORE items than requested for filtering"""
+- Extract MORE items than requested for filtering
+- **GENERATE OPTIMIZED SEARCH QUERIES** - Don't just copy the user's query!
+  * Extract key product/place details (brand, model, specs, location)
+  * Remove filler words ("find", "show me", "best", "cheapest", "under X price")
+  * Tailor query to each site's search algorithm
+  * Example: User says "Find me cheapest MacBook Air under 1 lakh on Flipkart"
+            → Your type action should have text: "MacBook Air M2 13 inch"
+            NOT "cheapest MacBook Air under 1 lakh"
+
+=== QUERY GENERATION GUIDELINES ===
+
+For PRODUCT SEARCH:
+- Include: Brand + Product Line + Model/Variant + Size
+- Exclude: Price constraints, quality descriptors, action verbs
+- Examples:
+  * "Find best iPhone 15 under 80k" → "iPhone 15 128GB"
+  * "Show me laptops with 16GB RAM" → "laptop 16GB RAM"
+  * "Gaming mouse under 3000" → "gaming mouse"
+
+For LOCAL DISCOVERY:
+- Include: Business Type + Neighborhood + City
+- Exclude: Qualifiers like "best", "top rated", distance
+- Examples:
+  * "Best pizza places near Indiranagar" → "pizza restaurants Indiranagar Bangalore"
+  * "Find gyms in Koramangala" → "fitness gym Koramangala Bangalore"
+  * "Coffee shops HSR Layout" → "coffee cafe HSR Layout Bangalore"
+
+For COMPARISON (multiple sites):
+- Generate a slightly different optimized query for EACH site
+- Flipkart: simpler, direct keywords
+- Amazon: include model numbers, years
+- Google Maps: include area + city"""
 
 async def create_action_plan(instruction: str) -> list[dict]:
     """Convert natural language instruction to a JSON action plan using intent classification."""

@@ -244,6 +244,43 @@ class ConversationManager:
                 "clarification_resolved": True
             }
         
+        # Handle filter refinement responses
+        elif field == "product_filters" or context == "product_filter_refinement":
+            # User is selecting filter options
+            # Response could be JSON with filter selections, e.g. {"storage": "256GB", "color": "Black"}
+            import json
+            try:
+                # Try to parse as JSON
+                filter_selections = json.loads(response)
+                return {
+                    "filter_selections": filter_selections,
+                    "clarification_resolved": True,
+                    "apply_filters": True
+                }
+            except:
+                # If not JSON, try to parse as natural language
+                # e.g., "256GB black" or "black 256GB"
+                response_lower = response.lower()
+                filter_selections = {}
+                
+                # Check against available filters in clarification
+                available_filters = clarification.get("filters", [])
+                for filter_def in available_filters:
+                    field_name = filter_def.get("field")
+                    options = filter_def.get("options", [])
+                    
+                    # Check if any option is mentioned in response
+                    for option in options:
+                        if option.lower() in response_lower:
+                            filter_selections[field_name] = option
+                            break
+                
+                return {
+                    "filter_selections": filter_selections,
+                    "clarification_resolved": True,
+                    "apply_filters": True
+                }
+        
         # Default: just use response if meaningful, else append to original
         if len(response.split()) > 2:
             updated_instruction = f"{original_instruction}. {response}"
