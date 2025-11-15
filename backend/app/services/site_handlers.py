@@ -317,6 +317,113 @@ class GoogleMapsHandler:
         return {"status": "success", "data": extraction, "diagnostic": diagnostic}
 
 
+class GoogleSearchHandler:
+    """Handler for Google Search-specific operations."""
+    
+    @staticmethod
+    async def extract_search_results(page: Page, limit: int = 10) -> Dict:
+        """
+        Extract search result URLs from Google search results.
+        Only extracts links from actual search result containers, not ads or other links.
+        
+        Returns: {"status": "success", "data": [{"title": "...", "url": "..."}], "count": N}
+        """
+        try:
+            # Wait for search results to appear
+            await page.wait_for_selector("[data-ved], .g, .tF2Cxc", timeout=10000)
+        except:
+            pass  # Continue anyway
+        
+        # Extract search results using specialized JavaScript
+        results = await page.evaluate(f"""
+            () => {{
+                const searchResults = [];
+                
+                // Find all search result containers - Google uses multiple selectors
+                const containerSelectors = [
+                    '[data-ved]',  // Most reliable - Google uses this for all results
+                    '.g',  // Generic result class
+                    '.tF2Cxc',  // Result container
+                    '.yuRUbf',  // Link container
+                    'div[data-ved]'  // Div with data-ved
+                ];
+                
+                let containers = [];
+                for (const sel of containerSelectors) {{
+                    try {{
+                        const found = document.querySelectorAll(sel);
+                        if (found.length > 0) {{
+                            containers = Array.from(found);
+                            break;
+                        }}
+                    }} catch(e) {{
+                        continue;
+                    }}
+                }}
+                
+                // Filter to only actual search results (not ads, not navigation, etc.)
+                containers = containers.filter(container => {{
+                    // Skip if it's an ad
+                    if (container.closest('[data-text-ad]') || 
+                        container.closest('.ads') ||
+                        container.querySelector('[data-text-ad]')) {{
+                        return false;
+                    }}
+                    
+                    // Must have a link
+                    const link = container.querySelector('a[href*="http"]');
+                    if (!link) return false;
+                    
+                    // Must have a title (h3 or similar)
+                    const title = container.querySelector('h3, .LC20lb, .DKV0Md');
+                    if (!title) return false;
+                    
+                    return true;
+                }});
+                
+                for (let i = 0; i < Math.min({limit}, containers.length); i++) {{
+                    const container = containers[i];
+                    
+                    // Get title
+                    const titleEl = container.querySelector('h3, .LC20lb, .DKV0Md, [role="heading"]');
+                    const title = titleEl ? titleEl.textContent?.trim() || '' : '';
+                    
+                    // Get URL - from the main link in the result
+                    let url = null;
+                    const linkEl = container.querySelector('a[href*="http"]');
+                    if (linkEl) {{
+                        const href = linkEl.getAttribute('href');
+                        if (href && href.startsWith('http')) {{
+                            url = href;
+                        }} else if (href && href.startsWith('/url?q=')) {{
+                            // Google sometimes wraps URLs in /url?q=...
+                            const match = href.match(/[?&]q=([^&]+)/);
+                            if (match) {{
+                                url = decodeURIComponent(match[1]);
+                            }}
+                        }}
+                    }}
+                    
+                    // Only add if we have both title and URL
+                    if (title && url && url.startsWith('http')) {{
+                        searchResults.push({{
+                            title: title,
+                            url: url
+                        }});
+                    }}
+                }}
+                
+                return searchResults;
+            }}
+        """)
+        
+        return {
+            "status": "success",
+            "data": results,
+            "count": len(results)
+        }
+
+
 class YouTubeHandler:
     """Handler for YouTube-specific operations."""
     

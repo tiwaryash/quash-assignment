@@ -1,6 +1,6 @@
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext, TimeoutError as PlaywrightTimeout
 from app.services.site_selectors import get_selectors_for_site, detect_site_from_url
-from app.services.site_handlers import GoogleMapsHandler, SiteExtractionHandler, YouTubeHandler
+from app.services.site_handlers import GoogleMapsHandler, SiteExtractionHandler, YouTubeHandler, GoogleSearchHandler
 from app.core.config import settings
 from app.core.retry import retry_async, RetryConfig
 from app.core.logger import logger, log_action
@@ -1463,6 +1463,10 @@ EXAMPLES:
         # For YouTube, use specialized extraction
         if self.current_site == "youtube":
             return await YouTubeHandler.extract_video_urls(self.page, limit or 10)
+        
+        # For Google Search, use specialized extraction
+        if self.current_site == "google":
+            return await GoogleSearchHandler.extract_search_results(self.page, limit or 10)
         
         # Get site-specific selectors as fallback
         site_selectors = get_selectors_for_site(self.current_site)
