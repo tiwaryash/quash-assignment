@@ -741,10 +741,10 @@ quash_assignment/
 
 | Item | Location | Status |
 |------|----------|--------|
-| **1. Codebase** | This repository | ✅ **COMPLETE** |
-| **2. README** | This file | ✅ **COMPLETE** |
-| **3. Technical Write-Up** | [TECHNICAL_WRITEUP.md](TECHNICAL_WRITEUP.md) | ✅ **COMPLETE** |
-| **4. Reasoning/Plan Logs** | [REASONING_AND_FUTURE_PROSPECTS.md](REASONING_AND_FUTURE_PROSPECTS.md) | ✅ **COMPLETE** |
+| **1. Codebase** | This repository |  **COMPLETE** |
+| **2. README** | This file |  **COMPLETE** |
+| **3. Technical Write-Up** | [TECHNICAL_WRITEUP.md](TECHNICAL_WRITEUP.md) |  **COMPLETE** |
+| **4. Reasoning/Plan Logs** | [REASONING_AND_FUTURE_PROSPECTS.md](REASONING_AND_FUTURE_PROSPECTS.md) |  **COMPLETE** |
 | **5. Demo Video** | (To be recorded) | **PENDING** |
 
 ---
