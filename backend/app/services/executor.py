@@ -510,36 +510,61 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                     selector = action.get("selector", "form, button[type='submit'], input[type='submit']")
                     result = await browser_agent.submit_form(selector)
                     
+                    # Store submission result in session for extraction step
+                    from app.api.websocket import manager
+                    if session_id not in manager.session_states:
+                        manager.session_states[session_id] = {}
+                    manager.session_states[session_id]["last_submission_result"] = result
+                    
                     # If form submission was successful, check what happened
                     if result.get("status") == "success":
                         result_info = result.get("result_info", {})
                         
-                        # If URL changed, that's usually a success indicator
+                        # Build detailed status message
+                        status_parts = []
+                        
                         if result.get("url_changed"):
-                            await websocket.send_json({
-                                "type": "status",
-                                "message": f"Form submitted successfully. Redirected to: {result.get('url', 'new page')}"
-                            })
-                        elif result_info.get("hasSuccessMessage"):
-                            await websocket.send_json({
-                                "type": "status",
-                                "message": "Form submitted successfully. Success message detected."
-                            })
+                            status_parts.append(f"Form submitted successfully. Redirected from {result.get('submitted_url', 'original page')} to {result.get('redirected_url', 'new page')}")
+                        else:
+                            status_parts.append(f"Form submitted successfully on {result.get('submitted_url', 'current page')}")
+                        
+                        if result.get("form_data"):
+                            status_parts.append(f"Submitted {len(result.get('form_data', {}))} fields")
+                        
+                        if result_info.get("hasSuccessMessage"):
+                            msg = result_info.get("messages", [{}])[0].get("text", "")
+                            if msg:
+                                status_parts.append(f"Success: {msg}")
+                            else:
+                                status_parts.append("Success message detected")
                         elif result_info.get("hasErrorMessage"):
                             error_msg = result_info.get("messages", [{}])[0].get("text", "Unknown error")
-                            await websocket.send_json({
-                                "type": "status",
-                                "message": f"Form submitted but error detected: {error_msg}"
-                            })
-                        else:
-                            await websocket.send_json({
-                                "type": "status",
-                                "message": "Form submitted. Checking result..."
-                            })
+                            status_parts.append(f"Error: {error_msg}")
+                        
+                        await websocket.send_json({
+                            "type": "status",
+                            "message": " | ".join(status_parts) if status_parts else "Form submitted. Checking result..."
+                        })
+                        
+                        # Send detailed submission info
+                        await websocket.send_json({
+                            "type": "form_submission",
+                            "submitted_url": result.get("submitted_url"),
+                            "redirected_url": result.get("redirected_url"),
+                            "url_changed": result.get("url_changed", False),
+                            "form_data": result.get("form_data", {}),
+                            "response_data": result.get("response_data", {}),
+                            "has_success": result_info.get("hasSuccessMessage", False),
+                            "has_error": result_info.get("hasErrorMessage", False),
+                            "messages": result_info.get("messages", [])
+                        })
                     
                 elif action_type == "wait_for":
                     selector = action.get("selector")
                     timeout = action.get("timeout", 5000)
+                    
+                    # Check if this is a form filling flow
+                    is_form_flow = intent_info.get("intent") == "form_fill"
                     
                     # For form submissions, if waiting for success message, try multiple strategies
                     if selector and (".success" in selector.lower() or "success" in selector.lower()):
@@ -575,6 +600,30 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                             result = await browser_agent.wait_for(selector, timeout)
                     else:
                         result = await browser_agent.wait_for(selector, timeout)
+                    
+                    # For form flows, if wait_for fails with a generic selector, try to continue anyway
+                    # (form fields might be there but selector might be too generic)
+                    if result.get("status") == "error" and is_form_flow:
+                        # Check if any form fields exist on the page
+                        try:
+                            if browser_agent.page:
+                                form_fields_count = await browser_agent.page.evaluate("""
+                                    () => {
+                                        const inputs = document.querySelectorAll('input, textarea, select');
+                                        return inputs.length;
+                                    }
+                                """)
+                                if form_fields_count > 0:
+                                    # Form fields exist, continue anyway
+                                    await websocket.send_json({
+                                        "type": "status",
+                                        "message": f"Wait timeout for selector, but found {form_fields_count} form fields. Continuing with form analysis..."
+                                    })
+                                    result["status"] = "success"
+                                    result["note"] = f"Form fields found ({form_fields_count} fields) despite wait timeout"
+                                    result["warning"] = True  # Mark as warning, not error
+                        except:
+                            pass  # If check fails, proceed with error
                     
                     # For Google Maps, if wait_for has a note about containers found, continue anyway
                     if result.get("status") == "success" and result.get("note"):
@@ -721,8 +770,7 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                     else:
                         # For form submissions, if no schema provided, extract form result
                         if intent_info.get("intent") == "form_fill" and (not schema or len(schema) == 0):
-                            # Extract form submission result
-                            result_info = await browser_agent._detect_form_result()
+                            # Get submission result from the submit action (stored in session or get from page)
                             current_url = browser_agent.page.url if browser_agent.page else ""
                             title = ""
                             if browser_agent.page:
@@ -731,52 +779,48 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                                 except:
                                     title = ""
                             
-                            # Build extraction schema based on what's available
+                            # Try to get submission details from the last submit action result
+                            # Check if we have submission info stored
+                            from app.api.websocket import manager
+                            submission_result = None
+                            if session_id in manager.session_states:
+                                submission_result = manager.session_states[session_id].get("last_submission_result")
+                            
+                            # Extract form submission result
+                            result_info = await browser_agent._detect_form_result()
+                            
+                            # Build comprehensive result with all submission details
+                            form_result = {
+                                "status": "success",
+                                "submitted_url": submission_result.get("submitted_url") if submission_result else current_url,
+                                "redirected_url": current_url,
+                                "url": current_url,
+                                "title": title,
+                                "url_changed": submission_result.get("url_changed", False) if submission_result else False,
+                            }
+                            
+                            # Add form data that was submitted
+                            if submission_result and submission_result.get("form_data"):
+                                form_result["form_data"] = submission_result["form_data"]
+                            
+                            # Add response data if available
+                            if submission_result and submission_result.get("response_data"):
+                                form_result["response_data"] = submission_result["response_data"]
+                            
+                            # Add success/error messages
                             if result_info.get("hasSuccessMessage") or result_info.get("hasErrorMessage"):
-                                # Extract messages
                                 messages = result_info.get("messages", [])
                                 if messages:
-                                    result = {
-                                        "status": "success",
-                                        "data": [{
-                                            "type": messages[0].get("type", "unknown"),
-                                            "message": messages[0].get("text", ""),
-                                            "url": current_url,
-                                            "title": title
-                                        }],
-                                        "count": 1
-                                    }
+                                    form_result["message"] = messages[0].get("text", "")
+                                    form_result["message_type"] = messages[0].get("type", "unknown")
                                 else:
-                                    result = {
-                                        "status": "success",
-                                        "data": [{
-                                            "status": "success" if result_info.get("hasSuccessMessage") else "error",
-                                            "url": current_url,
-                                            "title": title,
-                                            "note": "Form result detected but message text not extracted"
-                                        }],
-                                        "count": 1
-                                    }
-                            else:
-                                # No specific message, but check URL change
-                                if "signup" not in current_url.lower() and "register" not in current_url.lower():
-                                    result = {
-                                        "status": "success",
-                                        "data": [{
-                                            "status": "success",
-                                            "url": current_url,
-                                            "title": title,
-                                            "note": "Form submitted successfully - URL changed"
-                                        }],
-                                        "count": 1
-                                    }
-                                else:
-                                    # Try to extract page content
-                                    result = await browser_agent.extract({
-                                        "status": "body",
-                                        "message": "[role='alert'], .message, .notification, .alert, h1, h2",
-                                        "url": "a[href]"
-                                    }, extraction_limit)
+                                    form_result["message_type"] = "success" if result_info.get("hasSuccessMessage") else "error"
+                            
+                            result = {
+                                "status": "success",
+                                "data": [form_result],
+                                "count": 1
+                            }
                         else:
                             # Use extraction_limit for extraction (extract more for filtering)
                             result = await browser_agent.extract(schema, extraction_limit)
@@ -952,14 +996,22 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                         result["count"] = len(result["data"])
                 
                 # Send result with full details
+                # For wait_for with warnings, show as completed with warning
+                result_status = "completed"
+                if result.get("status") == "error":
+                    result_status = "error"
+                elif result.get("warning"):
+                    result_status = "completed"  # Show as completed but with warning note
+                
                 await websocket.send_json({
                     "type": "action_status",
                     "action": action_type,
-                    "status": "completed" if result.get("status") == "success" else "error",
+                    "status": result_status,
                     "step": idx + 1,
                     "total": len(plan),
                     "result": result,
-                    "details": action  # Include original action details
+                    "details": action,  # Include original action details
+                    "warning": result.get("warning", False)  # Include warning flag
                 })
                 
                 # FEATURE: Extract filter options after product extraction

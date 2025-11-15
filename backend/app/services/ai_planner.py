@@ -214,12 +214,16 @@ FORM RESULT:
 
 PRODUCT SEARCH:
 1. navigate → e-commerce site URL
-2. wait_for → search input (optional, but good practice)
-3. type → **OPTIMIZED search query for this specific site**
-4. click → submit button OR type action handles Enter
-5. wait_for → product containers (e.g., [data-id])
-6. scroll → (optional, to load more)
-7. extract → with schema and limit (20+ for filtering)
+2. type → **OPTIMIZED search query for this specific site** (no wait_for needed after type)
+3. click → submit button (type action may auto-press Enter, but click ensures submission)
+4. wait_for → product containers (e.g., [data-id]) - WAIT AFTER CLICK, not after type
+5. scroll → (optional, to load more results)
+6. extract → with schema and limit (20+ for filtering)
+
+IMPORTANT FOR PRODUCT SEARCH:
+- DO NOT add wait_for after type action - type doesn't need waiting
+- DO add wait_for AFTER click/submit - this is when results load
+- Keep it simple: navigate → type → click → wait_for → scroll → extract
 
 **Query Optimization Examples (FORMAT ONLY - NO ADDITIONS):**
 - User: "Find MacBook Air under 1 lakh"
@@ -233,12 +237,15 @@ PRODUCT SEARCH:
 
 FORM FILLING:
 1. navigate → form page URL
-2. wait_for → form fields (e.g., input[type='email'])
-3. analyze_form → (detects all fields)
-4. fill_form → (uses analyzed fields automatically)
-5. submit → (optional selector)
-6. wait_for → result indicator (URL change OR [role='alert'])
-7. extract → status, message, redirect_url
+2. analyze_form → (detects all fields, automatically waits for form to load)
+3. fill_form → (uses analyzed fields automatically)
+4. submit → (optional selector, automatically detects result)
+
+IMPORTANT FOR FORM FILLING:
+- DO NOT add wait_for before analyze_form - analyze_form will wait for form fields automatically
+- DO NOT add wait_for after submit - submit action already detects success/error messages and URL changes
+- DO NOT add extract after submit - submit action already returns all submission details (URL, form data, response, messages)
+- Keep it simple: navigate → analyze_form → fill_form → submit (4 actions only)
 
 LOCAL DISCOVERY (Google Maps):
 1. navigate → https://www.google.com/maps
@@ -375,12 +382,14 @@ async def create_action_plan(instruction: str) -> list[dict]:
         context_parts.append("")
         context_parts.append("STRATEGY:")
         context_parts.append("1. Navigate to e-commerce site (e.g., https://www.flipkart.com)")
-        context_parts.append("2. Type product query into search box")
-        context_parts.append("3. Click search button or press Enter")
-        context_parts.append("4. Wait for product results to load")
+        context_parts.append("2. Type product query into search box (no wait_for needed after type)")
+        context_parts.append("3. Click search button (wait_for should come AFTER click, not after type)")
+        context_parts.append("4. Wait for product results to load (wait_for [data-id] or similar container)")
         context_parts.append("5. Scroll down to load more products (optional)")
         context_parts.append("6. Extract 20+ products with name, price, rating, url")
         context_parts.append("7. System will auto-filter by price/rating and limit to requested count after extraction")
+        context_parts.append("")
+        context_parts.append("IMPORTANT: Do NOT add wait_for after type action. Add wait_for AFTER click/submit when results are loading.")
         context_parts.append("")
         context_parts.append("SITE-SPECIFIC URLS:")
         context_parts.append("- Flipkart: https://www.flipkart.com")
@@ -390,12 +399,20 @@ async def create_action_plan(instruction: str) -> list[dict]:
         
     elif intent_info["intent"] == "form_fill":
         context_parts.append("Task: Fill out and submit a form")
-        context_parts.append("Strategy: Navigate → Wait for form → Analyze form (LLM) → Fill fields → Submit → Wait for result → Extract")
-        context_parts.append("IMPORTANT: For form filling, you MUST use analyze_form action BEFORE fill_form")
-        context_parts.append("Steps: 1) navigate to URL, 2) wait_for form fields (e.g., input[type='email']), 3) analyze_form, 4) fill_form (will use analyzed fields), 5) submit, 6) wait_for result (use flexible selectors or skip if URL changes), 7) extract")
+        context_parts.append("Strategy: Navigate → Analyze form (LLM) → Fill fields → Submit")
+        context_parts.append("IMPORTANT: For form filling, keep the plan SIMPLE - only 4 actions needed:")
+        context_parts.append("1) navigate to URL")
+        context_parts.append("2) analyze_form (automatically waits for form fields, no need for wait_for)")
+        context_parts.append("3) fill_form (uses analyzed fields automatically)")
+        context_parts.append("4) submit (automatically detects result, no need for wait_for or extract)")
+        context_parts.append("")
+        context_parts.append("DO NOT ADD:")
+        context_parts.append("- wait_for before analyze_form (analyze_form handles waiting)")
+        context_parts.append("- wait_for after submit (submit action already detects success/error)")
+        context_parts.append("- extract after submit (submit action already returns all details)")
+        context_parts.append("")
         context_parts.append("The analyze_form action will automatically detect all form fields and generate appropriate values (including temporary emails)")
-        context_parts.append("After submit: Don't use hardcoded selectors like .success-message. Instead, wait for URL change or use generic selectors like [role='alert'], .message, or check page content")
-        context_parts.append("For extraction after form submission: Extract success/error messages, new page content, or confirmation details")
+        context_parts.append("The submit action automatically returns: submitted_url, redirected_url, form_data, response_data, and success/error messages")
         
     elif intent_info["intent"] == "local_discovery":
         context_parts.append("Task: Local discovery (finding restaurants, places, services)")

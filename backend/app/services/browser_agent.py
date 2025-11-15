@@ -21,29 +21,47 @@ class BrowserAgent:
         self.current_site: str = "generic"  # Track current site for selector strategies
         self._retry_config = RetryConfig(max_retries=3, initial_delay=1.0, exponential_base=2.0)
 
-    async def start(self):
-        """Initialize browser instance with error handling."""
+    async def start(self, use_stealth: bool = False):
+        """Initialize browser instance with error handling and optional stealth mode.
+        
+        Args:
+            use_stealth: If True, enable stealth mode with enhanced anti-detection measures
+        """
         if self.browser is None:
             try:
                 self.playwright = await async_playwright().start()
+                
+                # Enhanced browser args for stealth mode
+                browser_args = [
+                    '--disable-blink-features=AutomationControlled',
+                    '--disable-dev-shm-usage',
+                    '--no-sandbox',
+                ]
+                
+                if use_stealth:
+                    # Additional stealth args
+                    browser_args.extend([
+                        '--disable-web-security',
+                        '--disable-features=IsolateOrigins,site-per-process',
+                        '--disable-site-isolation-trials',
+                        '--disable-features=BlockInsecurePrivateNetworkRequests',
+                    ])
+                
                 self.browser = await self.playwright.chromium.launch(
                     headless=settings.headless,
-                    args=[
-                        '--disable-blink-features=AutomationControlled',
-                        '--disable-dev-shm-usage',  # Overcome limited resource problems
-                        '--no-sandbox',  # Required for some environments
-                    ]
+                    args=browser_args
                 )
             except Exception as e:
                 logger.error(f"Failed to start browser: {e}")
                 raise
+            
             # Create context with realistic browser settings
-            self.context = await self.browser.new_context(
-                viewport={'width': 1920, 'height': 1080},
-                user_agent='Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                locale='en-IN',  # Indian locale for better local results
-                timezone_id='Asia/Kolkata',  # Indian timezone
-                extra_http_headers={
+            context_options = {
+                'viewport': {'width': 1920, 'height': 1080},
+                'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'locale': 'en-IN',
+                'timezone_id': 'Asia/Kolkata',
+                'extra_http_headers': {
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
                     'Accept-Language': 'en-US,en;q=0.9',
                     'Accept-Encoding': 'gzip, deflate, br',
@@ -51,13 +69,47 @@ class BrowserAgent:
                     'Connection': 'keep-alive',
                     'Upgrade-Insecure-Requests': '1',
                 }
-            )
-            # Remove webdriver property
-            await self.context.add_init_script("""
+            }
+            
+            # Add permissions for file access in stealth mode
+            if use_stealth:
+                context_options['bypass_csp'] = True
+                context_options['ignore_https_errors'] = True
+            
+            self.context = await self.browser.new_context(**context_options)
+            
+            # Enhanced stealth script to bypass detection
+            stealth_script = """
+                // Remove webdriver property
                 Object.defineProperty(navigator, 'webdriver', {
                     get: () => undefined
                 });
-            """)
+                
+                // Override the `plugins` property to use a custom getter
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5]
+                });
+                
+                // Override the `languages` property
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en']
+                });
+                
+                // Mock chrome object
+                window.chrome = {
+                    runtime: {}
+                };
+                
+                // Override permissions
+                const originalQuery = window.navigator.permissions.query;
+                window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications' ?
+                        Promise.resolve({ state: Notification.permission }) :
+                        originalQuery(parameters)
+                );
+            """
+            
+            await self.context.add_init_script(stealth_script)
             self.page = await self.context.new_page()
 
     async def close(self):
@@ -80,8 +132,8 @@ class BrowserAgent:
             await self.start()
         
         try:
-            # Add https:// if no protocol specified
-            if not url.startswith(('http://', 'https://')):
+            # Add https:// if no protocol specified (but not for file:// or other protocols)
+            if not url.startswith(('http://', 'https://', 'file://', 'about:', 'data:')):
                 url = 'https://' + url
             
             # Detect if this is Google Maps - it needs special handling
@@ -670,6 +722,8 @@ class BrowserAgent:
     async def analyze_form(self, user_instruction: str = "") -> dict:
         """Analyze form on the page and determine what fields to fill using LLM.
         
+        This function automatically waits for form fields to appear, so no wait_for is needed before calling it.
+        
         Returns: {
             "status": "success",
             "fields": {
@@ -685,6 +739,32 @@ class BrowserAgent:
             return {"status": "error", "error": "Browser not initialized"}
         
         try:
+            # Automatically wait for form fields to appear (no need for separate wait_for action)
+            # Try common form field selectors
+            form_field_selectors = [
+                "input[type='email']",
+                "input[type='text']",
+                "input[type='password']",
+                "input[name*='email']",
+                "input[name*='name']",
+                "form input",
+                "form textarea",
+                "form select"
+            ]
+            
+            form_found = False
+            for selector in form_field_selectors:
+                try:
+                    await self.page.wait_for_selector(selector, state="visible", timeout=5000)
+                    form_found = True
+                    break
+                except:
+                    continue
+            
+            # If no specific field found, wait a bit for page to settle
+            if not form_found:
+                await asyncio.sleep(2)
+            
             # Extract form structure from the page
             form_data = await self.page.evaluate("""
                 () => {
@@ -696,37 +776,44 @@ class BrowserAgent:
                             return {
                                 hasFormTag: false,
                                 fields: inputs.map((el, idx) => ({
-                                    index: idx,
-                                    tag: el.tagName.toLowerCase(),
-                                    type: el.type || 'text',
-                                    name: el.name || '',
-                                    id: el.id || '',
-                                    placeholder: el.placeholder || '',
-                                    label: (() => {
-                                        // Try to find associated label
-                                        if (el.id) {
-                                            const label = document.querySelector(`label[for="${el.id}"]`);
-                                            if (label) return label.textContent?.trim() || '';
-                                        }
-                                        // Try to find label as parent or sibling
-                                        const parent = el.parentElement;
-                                        if (parent) {
-                                            const label = parent.querySelector('label');
-                                            if (label) return label.textContent?.trim() || '';
-                                        }
-                                        // Try previous sibling
-                                        let prev = el.previousElementSibling;
-                                        if (prev && prev.tagName.toLowerCase() === 'label') {
-                                            return prev.textContent?.trim() || '';
-                                        }
-                                        return '';
-                                    })(),
-                                    required: el.hasAttribute('required') || el.getAttribute('aria-required') === 'true',
-                                    pattern: el.getAttribute('pattern') || '',
-                                    autocomplete: el.getAttribute('autocomplete') || '',
-                                    className: el.className || '',
-                                    value: el.value || ''
-                                }))
+                            index: idx,
+                            tag: el.tagName.toLowerCase(),
+                            type: el.type || 'text',
+                            name: el.name || '',
+                            id: el.id || '',
+                            placeholder: el.placeholder || '',
+                            value_attr: el.getAttribute('value') || '',
+                            label: (() => {
+                                // Try to find associated label
+                                if (el.id) {
+                                    const label = document.querySelector(`label[for="${el.id}"]`);
+                                    if (label) return label.textContent?.trim() || '';
+                                }
+                                // Try to find label as parent or sibling
+                                const parent = el.parentElement;
+                                if (parent) {
+                                    const label = parent.querySelector('label');
+                                    if (label) return label.textContent?.trim() || '';
+                                }
+                                // Try previous sibling
+                                let prev = el.previousElementSibling;
+                                if (prev && prev.tagName.toLowerCase() === 'label') {
+                                    return prev.textContent?.trim() || '';
+                                }
+                                // Try next sibling (for checkboxes/radios often come after)
+                                let next = el.nextElementSibling;
+                                if (next && next.tagName.toLowerCase() === 'label') {
+                                    return next.textContent?.trim() || '';
+                                }
+                                return '';
+                            })(),
+                            required: el.hasAttribute('required') || el.getAttribute('aria-required') === 'true',
+                            pattern: el.getAttribute('pattern') || '',
+                            autocomplete: el.getAttribute('autocomplete') || '',
+                            className: el.className || '',
+                            value: el.value || '',
+                            checked: el.checked || false
+                        }))
                             };
                         }
                     }
@@ -746,6 +833,7 @@ class BrowserAgent:
                             name: el.name || '',
                             id: el.id || '',
                             placeholder: el.placeholder || '',
+                            value_attr: el.getAttribute('value') || '',
                             label: (() => {
                                 if (el.id) {
                                     const label = document.querySelector(`label[for="${el.id}"]`);
@@ -760,13 +848,18 @@ class BrowserAgent:
                                 if (prev && prev.tagName.toLowerCase() === 'label') {
                                     return prev.textContent?.trim() || '';
                                 }
+                                let next = el.nextElementSibling;
+                                if (next && next.tagName.toLowerCase() === 'label') {
+                                    return next.textContent?.trim() || '';
+                                }
                                 return '';
                             })(),
                             required: el.hasAttribute('required') || el.getAttribute('aria-required') === 'true',
                             pattern: el.getAttribute('pattern') || '',
                             autocomplete: el.getAttribute('autocomplete') || '',
                             className: el.className || '',
-                            value: el.value || ''
+                            value: el.value || '',
+                            checked: el.checked || false
                         }))
                     };
                 }
@@ -798,15 +891,33 @@ Form fields found on the page:
 For each field, determine:
 1. A CSS selector to target it (prefer id, then name, then other attributes)
 2. An appropriate value to fill (generate temporary email if needed, realistic names, etc.)
-3. The field type (email, password, text, etc.)
+3. The field type (email, password, text, select, tel, etc.)
 
 IMPORTANT:
 - For email fields, generate a temporary email like: temp_123456@example.com (use random numbers)
-- For password fields, generate a secure password like: TempPass1234! (use random numbers)
-- For name fields, use realistic names
+- For password fields, generate a secure password like: TempPass1234! (use random numbers and special chars)
+- For confirm password fields, use the SAME password as the password field
+- For name fields, use realistic names (e.g., "John Smith", "Jane Doe")
+- For phone fields, use a valid format (e.g., "+1-555-123-4567" or "9876543210")
+- For select/dropdown fields (tag='select'), provide a VALUE from the available options (not the display text)
 - For required fields, always provide values
 - Skip hidden fields (type='hidden')
 - Skip submit buttons (type='submit' or type='button' with submit-like text)
+- For date fields, use format YYYY-MM-DD (e.g., "1990-01-01")
+
+CHECKBOX AND RADIO BUTTON HANDLING:
+- For checkboxes (type='checkbox'), provide "true" to check or "false" to uncheck
+- For radio buttons (type='radio'), you must include the value attribute in the selector
+  * Example: If field has name="size" and value="medium", selector should be: input[name='size'][value='medium']
+  * The value field in JSON should be "true" to select that radio button
+- For checkbox groups (multiple checkboxes with same name), create separate entries for each checkbox
+  * Each should have its own selector with the value attribute: input[name='topping'][value='bacon']
+  * Set value to "true" to check, "false" to uncheck
+
+SELECT FIELD HANDLING:
+- If a field has tag='select', look at the field info to see if it contains options
+- Provide the VALUE attribute of one of the options, not the display text
+- Example: If options show <option value="USA">United States</option>, use "USA" not "United States"
 
 Return JSON in this format:
 {{
@@ -814,14 +925,21 @@ Return JSON in this format:
         "field_identifier": {{
             "selector": "css_selector",
             "value": "value_to_fill",
-            "type": "email|password|text|etc",
+            "type": "email|password|text|select|tel|date|etc",
             "required": true|false
         }}
     }}
 }}
 
-Use field identifiers like: email, password, name, first_name, last_name, phone, etc.
-For selectors, use the most reliable one: id > name > type+placeholder > className"""
+Use field identifiers like: email, password, confirm_password, full_name, first_name, last_name, phone, country, etc.
+For selectors, use the most reliable one: id > name > type+placeholder > className
+
+EXAMPLES:
+- Email field: {{"email": {{"selector": "#email", "value": "temp_784623@example.com", "type": "email"}}}}
+- Password field: {{"password": {{"selector": "#password", "value": "SecurePass987!", "type": "password"}}}}
+- Confirm password: {{"confirm_password": {{"selector": "#confirmPassword", "value": "SecurePass987!", "type": "password"}}}}
+- Name field: {{"full_name": {{"selector": "#fullName", "value": "John Smith", "type": "text"}}}}
+- Country select: {{"country": {{"selector": "#country", "value": "India", "type": "select"}}}}"""
             
             response_content = await llm_provider.chat_completion(
                 messages=[
@@ -895,47 +1013,116 @@ For selectors, use the most reliable one: id > name > type+placeholder > classNa
             }
     
     async def fill_form(self, fields: dict) -> dict:
-        """Fill form fields dynamically.
+        """Fill form fields dynamically with human-like behavior.
         
-        fields format: {"field_name": {"selector": "css_selector", "value": "text"}}
+        fields format: {"field_name": {"selector": "css_selector", "value": "text", "type": "email|password|text"}}
         """
         if not self.page:
             return {"status": "error", "error": "Browser not initialized"}
         
         results = {}
+        
         for field_name, field_info in fields.items():
             selector = field_info.get("selector")
             value = field_info.get("value")
+            field_type = field_info.get("type", "text")
             
             if not selector or value is None:
                 continue
             
+            # Add random delay between fields to simulate human behavior
+            await asyncio.sleep(random.uniform(0.3, 0.8))
+            
             try:
                 # Try to find and fill the field
                 await self.page.wait_for_selector(selector, state="visible", timeout=5000)
-                # Clear the field first
-                await self.page.fill(selector, "")
-                # Type the value with a small delay to simulate human typing
-                await self.page.type(selector, str(value), delay=50)
-                results[field_name] = {"status": "success", "selector": selector, "value": value}
+                
+                # Scroll field into view
+                await self.page.evaluate(f"""
+                    (selector) => {{
+                        const el = document.querySelector(selector);
+                        if (el) {{
+                            el.scrollIntoView({{ behavior: 'smooth', block: 'center' }});
+                        }}
+                    }}
+                """, selector)
+                
+                await asyncio.sleep(0.2)
+                
+                # Handle different field types
+                if field_type == "select":
+                    # For dropdown/select fields, use selectOption
+                    await self.page.select_option(selector, str(value))
+                    results[field_name] = {"status": "success", "selector": selector, "value": value, "type": "select"}
+                    
+                elif field_type == "checkbox" or field_type == "radio":
+                    # For checkboxes and radio buttons, use check/click
+                    # Value should be "true", "false", or specific radio value
+                    value_str = str(value).lower()
+                    
+                    if field_type == "checkbox":
+                        # For checkboxes, value is true/false
+                        if value_str in ["true", "1", "yes", "on"]:
+                            await self.page.check(selector)
+                            results[field_name] = {"status": "success", "selector": selector, "value": value, "type": "checkbox", "checked": True}
+                        else:
+                            await self.page.uncheck(selector)
+                            results[field_name] = {"status": "success", "selector": selector, "value": value, "type": "checkbox", "checked": False}
+                    else:
+                        # For radio buttons, click the option
+                        await self.page.click(selector)
+                        results[field_name] = {"status": "success", "selector": selector, "value": value, "type": "radio"}
+                        
+                else:
+                    # For input fields (text, email, password, tel, etc.)
+                    # Click the field to focus (human-like)
+                    await self.page.click(selector)
+                    await asyncio.sleep(0.1)
+                    
+                    # Clear the field first
+                    await self.page.fill(selector, "")
+                    
+                    # Type with random delays to simulate human typing
+                    for char in str(value):
+                        await self.page.type(selector, char, delay=random.randint(30, 100))
+                    
+                    # Verify the value was set
+                    filled_value = await self.page.input_value(selector)
+                    if filled_value == str(value):
+                        results[field_name] = {"status": "success", "selector": selector, "value": value}
+                    else:
+                        # If typing didn't work, try fill as fallback
+                        await self.page.fill(selector, str(value))
+                        results[field_name] = {"status": "success", "selector": selector, "value": value, "method": "fill"}
+                    
             except Exception as e:
                 # Try alternative selectors
-                field_type = field_info.get("type", "")
                 alternative_selectors = []
                 
                 # Generate alternative selectors based on field type
                 if field_type == "email":
                     alternative_selectors = [
                         "input[type='email']",
-                        "input[name*='email']",
-                        "input[id*='email']",
-                        "input[placeholder*='email' i]"
+                        "input[name*='email' i]",
+                        "input[id*='email' i]",
+                        "input[placeholder*='email' i]",
+                        "input[autocomplete='email']"
                     ]
                 elif field_type == "password":
                     alternative_selectors = [
                         "input[type='password']",
-                        "input[name*='password']",
-                        "input[id*='password']"
+                        "input[name*='password' i]",
+                        "input[id*='password' i]",
+                        "input[autocomplete='current-password']",
+                        "input[autocomplete='new-password']"
+                    ]
+                elif field_type == "text" or field_type == "tel":
+                    # For name, phone, etc.
+                    alternative_selectors = [
+                        "input[type='text']",
+                        "input[type='tel']",
+                        f"input[name*='{field_name}' i]",
+                        f"input[id*='{field_name}' i]"
                     ]
                 
                 # Try alternatives
@@ -943,9 +1130,20 @@ For selectors, use the most reliable one: id > name > type+placeholder > classNa
                 for alt_selector in alternative_selectors:
                     try:
                         await self.page.wait_for_selector(alt_selector, state="visible", timeout=2000)
+                        await self.page.click(alt_selector)
+                        await asyncio.sleep(0.1)
                         await self.page.fill(alt_selector, "")
-                        await self.page.type(alt_selector, str(value), delay=50)
-                        results[field_name] = {"status": "success", "selector": alt_selector, "value": value, "original_selector": selector}
+                        
+                        # Type with delays
+                        for char in str(value):
+                            await self.page.type(alt_selector, char, delay=random.randint(30, 100))
+                        
+                        results[field_name] = {
+                            "status": "success", 
+                            "selector": alt_selector, 
+                            "value": value, 
+                            "original_selector": selector
+                        }
                         filled = True
                         break
                     except:
@@ -954,19 +1152,66 @@ For selectors, use the most reliable one: id > name > type+placeholder > classNa
                 if not filled:
                     results[field_name] = {"status": "error", "error": str(e), "selector": selector}
         
+        # Count successful fills
+        success_count = sum(1 for r in results.values() if r.get("status") == "success")
+        total_count = len(results)
+        
         return {
-            "status": "success" if all(r.get("status") == "success" for r in results.values()) else "partial",
-            "fields": results
+            "status": "success" if success_count == total_count else ("partial" if success_count > 0 else "error"),
+            "fields": results,
+            "success_count": success_count,
+            "total_count": total_count
         }
     
     async def submit_form(self, selector: str = None) -> dict:
-        """Submit a form by selector or find submit button."""
+        """Submit a form by selector or find submit button.
+        
+        Returns detailed information about the submission including:
+        - Submitted URL (before submission)
+        - Redirected URL (after submission)
+        - Page title
+        - Success/error messages
+        - Response data if available
+        """
         if not self.page:
             return {"status": "error", "error": "Browser not initialized"}
         
         try:
-            # Store current URL before submission
+            # Store current URL and form data before submission
             url_before = self.page.url
+            title_before = await self.page.title()
+            
+            # Try to capture form data before submission
+            form_data = {}
+            try:
+                form_data = await self.page.evaluate("""
+                    () => {
+                        const form = document.querySelector('form');
+                        if (!form) return {};
+                        
+                        const data = {};
+                        const inputs = form.querySelectorAll('input, textarea, select');
+                        inputs.forEach(input => {
+                            if (input.type === 'checkbox' || input.type === 'radio') {
+                                if (input.checked) {
+                                    const name = input.name || input.id;
+                                    if (name) {
+                                        if (!data[name]) data[name] = [];
+                                        data[name].push(input.value || input.checked);
+                                    }
+                                }
+                            } else if (input.type !== 'submit' && input.type !== 'button' && input.type !== 'hidden') {
+                                const name = input.name || input.id;
+                                if (name && input.value) {
+                                    data[name] = input.value;
+                                }
+                            }
+                        });
+                        return data;
+                    }
+                """)
+            except:
+                pass
             
             if selector:
                 await self.page.wait_for_selector(selector, state="visible", timeout=5000)
@@ -998,15 +1243,70 @@ For selectors, use the most reliable one: id > name > type+placeholder > classNa
                 await self.page.wait_for_timeout(2000)
             
             url_after = self.page.url
+            title_after = ""
+            try:
+                title_after = await self.page.title()
+            except:
+                pass
             
             # Detect what happened after submission
             result_info = await self._detect_form_result()
             
+            # Try to extract response data from the page (for forms that show submitted data)
+            response_data = {}
+            try:
+                # Check if page shows submitted form data (common in test forms like httpbin)
+                page_text = await self.page.evaluate("() => document.body.innerText")
+                if "form" in page_text.lower() or "submitted" in page_text.lower():
+                    # Try to extract JSON if present
+                    json_match = await self.page.evaluate("""
+                        () => {
+                            const scripts = Array.from(document.querySelectorAll('script'));
+                            for (const script of scripts) {
+                                if (script.textContent && script.textContent.includes('form')) {
+                                    try {
+                                        const jsonMatch = script.textContent.match(/\\{[\\s\\S]*form[\\s\\S]*\\}/);
+                                        if (jsonMatch) {
+                                            return JSON.parse(jsonMatch[0]);
+                                        }
+                                    } catch (e) {}
+                                }
+                            }
+                            return null;
+                        }
+                    """)
+                    if json_match:
+                        response_data = json_match
+                    else:
+                        # Try to extract from pre tags (common in httpbin)
+                        pre_content = await self.page.evaluate("""
+                            () => {
+                                const pre = document.querySelector('pre');
+                                if (pre) {
+                                    try {
+                                        return JSON.parse(pre.textContent);
+                                    } catch (e) {
+                                        return { raw: pre.textContent };
+                                    }
+                                }
+                                return null;
+                            }
+                        """)
+                        if pre_content:
+                            response_data = pre_content
+            except:
+                pass
+            
             return {
                 "status": "success",
-                "url": url_after,
+                "submitted_url": url_before,
+                "redirected_url": url_after,
+                "url": url_after,  # Keep for backward compatibility
                 "url_changed": url_after != url_before,
-                "title": await self.page.title(),
+                "title": title_after,
+                "title_before": title_before,
+                "form_data": form_data,  # Data that was submitted
+                "response_data": response_data,  # Response from server if available
                 "result_info": result_info
             }
         except Exception as e:
