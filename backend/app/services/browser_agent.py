@@ -1,6 +1,6 @@
 from playwright.async_api import async_playwright, Page, Browser, BrowserContext, TimeoutError as PlaywrightTimeout
 from app.services.site_selectors import get_selectors_for_site, detect_site_from_url
-from app.services.site_handlers import GoogleMapsHandler, SiteExtractionHandler, YouTubeHandler, GoogleSearchHandler, SwiggyHandler
+from app.services.site_handlers import GoogleMapsHandler, SiteExtractionHandler, YouTubeHandler, GoogleSearchHandler, SwiggyHandler, ZomatoHandler
 from app.core.config import settings
 from app.core.retry import retry_async, RetryConfig
 from app.core.logger import logger, log_action
@@ -12,6 +12,7 @@ import string
 import urllib.parse
 from typing import List, Dict, Optional
 import re  # Import at the top of the processing block
+import random as random_module  # For random delays
 
 class BrowserAgent:
     def __init__(self):
@@ -375,6 +376,114 @@ class BrowserAgent:
         total_steps = len(plan) if plan else 7
         return await SwiggyHandler.search(self.page, self.context, query, location, limit, websocket=websocket, session_id=session_id, total_steps=total_steps, plan=plan)
     
+    async def search_zomato(self, query: str, location: str = "HSR Layout", city: str = "bangalore", limit: int = 5, websocket=None, session_id=None, plan=None) -> Dict:
+        """
+        Search Zomato for restaurants matching query at location and extract results.
+        Uses stealth mode to bypass anti-bot detection.
+        Note: Zomato frequently blocks automated access with HTTP2 errors.
+        Tries Chromium first, then Firefox as fallback.
+        
+        Returns: {"status":"success","data":[{name, rating, cuisine, location, price, url}]}
+        """
+        # For Zomato, always start with a fresh browser to avoid stale state
+        if self.page:
+            try:
+                await self.close()
+            except:
+                pass
+        
+        # Try Chromium first with HTTP/2 disabled
+        try:
+            if not self.playwright:
+                self.playwright = await async_playwright().start()
+            
+            # Enhanced browser args for Zomato - aggressive stealth measures
+            browser_args = [
+                '--disable-blink-features=AutomationControlled',
+                '--disable-dev-shm-usage',
+                '--no-sandbox',
+                '--disable-web-security',
+                '--disable-features=IsolateOrigins,site-per-process',
+                '--disable-site-isolation-trials',
+                '--disable-features=BlockInsecurePrivateNetworkRequests',
+                '--disable-quic',   # Disable QUIC protocol (may help with some connection issues)
+                '--disable-background-networking',
+                '--disable-background-timer-throttling',
+                '--disable-renderer-backgrounding',
+            ]
+            
+            self.browser = await self.playwright.chromium.launch(
+                headless=settings.headless,
+                args=browser_args
+            )
+            
+            # Create context with realistic browser settings
+            context_options = {
+                'viewport': {'width': 1920, 'height': 1080},
+                'user_agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'locale': 'en-IN',
+                'timezone_id': 'Asia/Kolkata',
+                'bypass_csp': True,
+                'ignore_https_errors': True,
+                'extra_http_headers': {
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'DNT': '1',
+                    'Connection': 'keep-alive',
+                    'Upgrade-Insecure-Requests': '1',
+                    'Sec-Fetch-Dest': 'document',
+                    'Sec-Fetch-Mode': 'navigate',
+                    'Sec-Fetch-Site': 'none',
+                    'Cache-Control': 'max-age=0',
+                }
+            }
+            
+            self.context = await self.browser.new_context(**context_options)
+            
+            # Enhanced stealth script
+            stealth_script = """
+                // Remove webdriver property
+                Object.defineProperty(navigator, 'webdriver', {
+                    get: () => undefined
+                });
+                
+                // Override the `plugins` property
+                Object.defineProperty(navigator, 'plugins', {
+                    get: () => [1, 2, 3, 4, 5]
+                });
+                
+                // Override the `languages` property
+                Object.defineProperty(navigator, 'languages', {
+                    get: () => ['en-US', 'en']
+                });
+                
+                // Mock chrome object
+                window.chrome = {
+                    runtime: {}
+                };
+                
+                // Override permissions
+                const originalQuery = window.navigator.permissions.query;
+                window.navigator.permissions.query = (parameters) => (
+                    parameters.name === 'notifications' ?
+                        Promise.resolve({ state: Notification.permission }) :
+                        originalQuery(parameters)
+                );
+            """
+            
+            await self.context.add_init_script(stealth_script)
+            self.page = await self.context.new_page()
+            self._stealth_enabled = True
+            
+        except Exception as e:
+            logger.error(f"Failed to start browser for Zomato: {e}")
+            # Fallback: use regular start method
+            await self.start(use_stealth=True)
+            self._stealth_enabled = True
+        
+        total_steps = len(plan) if plan else 8
+        return await ZomatoHandler.search(self.page, self.context, query, location, city, limit, websocket=websocket, session_id=session_id, total_steps=total_steps, plan=plan)
 
     async def click(self, selector: str) -> dict:
         """Click an element by selector with automatic fallback."""

@@ -209,6 +209,11 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                     
                     # Skip everything else - return early
                     return
+                
+                # IMMEDIATE ZOMATO DETECTION: Check right after clarification response
+                # This is where "zomato" gets added to the instruction
+                # Let it proceed to LLM plan generation - the optimized path will be detected after plan is generated
+                # This ensures action cards are shown (the optimized Zomato path is detected after plan generation)
             else:
                 await websocket.send_json({
                     "type": "error",
@@ -444,6 +449,168 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
             try:
                 await browser_agent.close()
                 print("✓ Browser closed after Swiggy search")
+            except Exception as e:
+                print(f"Note: Could not close browser: {e}")
+            
+            # Skip normal execution loop
+            plan = []
+        
+        # SPECIAL HANDLING: Detect Zomato searches in the LLM-generated plan and use optimized path
+        is_zomato_search = False
+        if plan:
+            for action in plan:
+                action_url = action.get("url", "")
+                if action_url and "zomato" in str(action_url).lower():
+                    is_zomato_search = True
+                    break
+        
+        if is_zomato_search:
+            # LLM has generated the plan, now use optimized Zomato execution
+            await websocket.send_json({
+                "type": "message",
+                "message": "⚡ Using optimized Zomato search with stealth mode...",
+                "level": "info"
+            })
+            
+            # Extract location, city, and food query from LLM-generated plan
+            location = None
+            city = "bangalore"  # Default
+            query = None
+            
+            # Find location from first "type" action (location input)
+            for action in plan:
+                if action.get("action") == "type":
+                    action_text = action.get("text", "")
+                    action_selector = action.get("selector", "")
+                    if "location" in action_selector.lower() or "area" in action_selector.lower():
+                        location = action_text.strip()
+                        break
+            
+            # Find food query from second "type" action (food search)
+            for action in plan:
+                if action.get("action") == "type":
+                    action_text = action.get("text", "")
+                    action_selector = action.get("selector", "")
+                    if ("restaurant" in action_selector.lower() or "cuisine" in action_selector.lower() or "dish" in action_selector.lower()) and action_text != location:
+                        query = action_text.strip()
+                        break
+            
+            # Extract city from navigate URL
+            for action in plan:
+                if action.get("action") == "navigate":
+                    url = action.get("url", "")
+                    if "zomato.com" in url.lower():
+                        # Extract city from URL like zomato.com/bangalore
+                        import re
+                        city_match = re.search(r'zomato\.com/([^/]+)', url.lower())
+                        if city_match:
+                            city = city_match.group(1)
+                        break
+            
+            # Fallback: extract from original instruction
+            if not location or not query:
+                original_instruction = manager.session_states.get(session_id, {}).get("original_instruction", instruction)
+                
+                # Extract location
+                if not location:
+                    location_match = re.search(r'(?:in|near|at)\s+([A-Za-z\s]+)', original_instruction, re.IGNORECASE)
+                    location = location_match.group(1).strip() if location_match else "HSR Layout"
+                
+                # Extract food query
+                if not query:
+                    if location_match:
+                        query = re.sub(r'\s*(?:in|near|at)\s+[A-Za-z\s]+', '', original_instruction, flags=re.IGNORECASE).strip()
+                    else:
+                        query = original_instruction
+                    
+                    query = re.sub(r'\b(best|top|good|great|places?|restaurants?)\b', '', query, flags=re.IGNORECASE).strip()
+                    if not query or len(query.split()) == 0:
+                        query = "restaurants"
+            
+            # Get extraction limit from plan
+            extraction_limit = 10
+            requested_limit = None
+            for action in plan:
+                if action.get("action") == "extract":
+                    extraction_limit = action.get("limit", 10)
+                    intent_info = action.get("_intent", {})
+                    requested_limit = intent_info.get("limit", None)
+                    break
+            
+            # Use specialized Zomato search function with stealth mode
+            result = await browser_agent.search_zomato(
+                query, 
+                location=location, 
+                city=city,
+                limit=extraction_limit,
+                websocket=websocket,
+                session_id=session_id,
+                plan=plan
+            )
+            
+            # Format and send result
+            if result.get("status") == "success":
+                for item in result.get("data", []):
+                    if "rating" in item and item["rating"]:
+                        try:
+                            item["rating"] = float(item["rating"])
+                        except:
+                            pass
+                
+                result["count"] = len(result.get("data", []))
+                
+                # Apply requested limit if specified
+                if requested_limit and result.get("data"):
+                    sorted_data = sorted(
+                        result["data"],
+                        key=lambda x: (x.get("rating") or 0),
+                        reverse=True
+                    )
+                    result["data"] = sorted_data[:requested_limit]
+                    result["count"] = len(result["data"])
+                
+                # Send extract action with results
+                await websocket.send_json({
+                    "type": "action_status",
+                    "action": "extract",
+                    "status": "completed",
+                    "step": len(plan),
+                    "total": len(plan),
+                    "result": result,
+                    "details": {"action": "extract", "limit": requested_limit or extraction_limit}
+                })
+                
+                await websocket.send_json({
+                    "type": "status",
+                    "message": f"Found {result['count']} restaurants"
+                })
+            else:
+                error_message = result.get("message", "Zomato search failed")
+                suggestion = result.get("suggestion", "Zomato frequently blocks automated access. Try using Swiggy or Google Maps instead.")
+                
+                # Check if it's an HTTP2 error - suggest alternatives
+                if "HTTP2" in error_message or "ERR_HTTP2" in error_message or "blocking" in error_message.lower():
+                    suggestion = "Zomato is blocking automated access. Try: 'find pizza in HSR on Swiggy' or 'find pizza in HSR on Google Maps'"
+                
+                await websocket.send_json({
+                    "type": "action_status",
+                    "action": "extract",
+                    "status": "error",
+                    "step": len(plan),
+                    "total": len(plan),
+                    "result": result,
+                    "details": {"action": "extract", "error": error_message}
+                })
+                
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"{error_message}. {suggestion}"
+                })
+            
+            # Close browser after Zomato search to ensure fresh state for next search
+            try:
+                await browser_agent.close()
+                print("✓ Browser closed after Zomato search")
             except Exception as e:
                 print(f"Note: Could not close browser: {e}")
             

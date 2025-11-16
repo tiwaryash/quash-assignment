@@ -45,7 +45,6 @@ class ConversationManager:
                     "question": f"Which platform would you like to use to find places in {location}?",
                     "options": [
                         {"value": "google_maps", "label": "Google Maps (most reliable, comprehensive results)"},
-                        {"value": "zomato", "label": "Zomato (restaurants, ratings, reviews)"},
                         {"value": "swiggy", "label": "Swiggy (food delivery, restaurant listings)"}
                     ],
                     "field": "site",
@@ -141,7 +140,10 @@ class ConversationManager:
         if context == "local_discovery" or (field == "site" and "local" in context):
             if response_lower == "google_maps":
                 updated_instruction = f"{original_instruction} on google maps"
-            elif response_lower in ["zomato", "swiggy"]:
+            elif response_lower == "swiggy":
+                updated_instruction = f"{original_instruction} on {response_lower}"
+            elif response_lower == "zomato":
+                # Zomato removed from frontend suggestions but still supported if explicitly mentioned
                 updated_instruction = f"{original_instruction} on {response_lower}"
             elif "google" in response_lower or "maps" in response_lower:
                 updated_instruction = f"{original_instruction} on google maps"

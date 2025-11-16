@@ -1504,6 +1504,782 @@ class SwiggyHandler:
             }
 
 
+class ZomatoHandler:
+    """Handler for Zomato-specific operations with anti-detection measures."""
+    
+    @staticmethod
+    async def search(page: Page, context: BrowserContext, query: str, location: str = "HSR Layout", city: str = "bangalore", limit: int = 5, websocket=None, session_id=None, total_steps=8, plan=None) -> Dict:
+        """
+        Search Zomato for restaurants matching query at location and extract results.
+        Zomato requires: navigate to city page → click location dropdown → type location → select suggestion → type food → click dish suggestion → extract.
+        
+        Returns: {"status":"success","data":[{name, rating, cuisine, location, price, url}]}
+        """
+        try:
+            print(f"\n=== ZOMATO SEARCH STARTED ===")
+            print(f"Query: '{query}'")
+            print(f"Location: '{location}'")
+            print(f"City: '{city}'")
+            print(f"Limit: {limit}")
+            
+            # Build Zomato URL - go to city page
+            base_url = f"https://www.zomato.com/{city}"
+            
+            # STEP 1: Navigate to Zomato city page
+            try:
+                navigate_action = None
+                if plan:
+                    for action in plan:
+                        if action.get("action") == "navigate" and "zomato" in str(action.get("url", "")).lower():
+                            navigate_action = action
+                            break
+                
+                if websocket:
+                    step_num = 1
+                    if plan:
+                        for idx, action in enumerate(plan):
+                            if action.get("action") == "navigate" and "zomato" in str(action.get("url", "")).lower():
+                                step_num = idx + 1
+                                break
+                    
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": "navigate",
+                        "status": "executing",
+                        "step": step_num,
+                        "total": total_steps,
+                        "details": navigate_action if navigate_action else {"action": "navigate", "url": base_url, "description": f"Navigate to Zomato {city}"}
+                    })
+                
+                print(f"\n[1/{total_steps}] Navigating to Zomato: {base_url}")
+                
+                # Try navigation with retries - Zomato sometimes blocks with HTTP2 errors
+                navigation_success = False
+                last_error = None
+                
+                # First, try accessing via a simpler URL or with different approach
+                # Sometimes going to homepage first helps
+                try_urls = [
+                    base_url,  # Try city page first
+                    "https://www.zomato.com",  # Try homepage as fallback
+                ]
+                
+                for url_to_try in try_urls:
+                    for attempt in range(2):  # 2 attempts per URL
+                        try:
+                            # Add a small random delay to appear more human-like
+                            import random
+                            await asyncio.sleep(random.uniform(1, 2))
+                            
+                            # Try with domcontentloaded (fastest, most reliable)
+                            await page.goto(url_to_try, wait_until="domcontentloaded", timeout=30000)
+                            
+                            # Verify page loaded successfully
+                            await asyncio.sleep(2)
+                            current_url = page.url
+                            page_title = await page.title()
+                            
+                            # Check if we're on Zomato (even if redirected)
+                            if "zomato.com" in current_url.lower() or "zomato" in page_title.lower():
+                                # If we went to homepage, navigate to city page
+                                if url_to_try == "https://www.zomato.com" and city:
+                                    try:
+                                        await page.goto(base_url, wait_until="domcontentloaded", timeout=30000)
+                                        await asyncio.sleep(2)
+                                    except:
+                                        pass  # Continue with homepage if city page fails
+                                
+                                navigation_success = True
+                                break
+                        except Exception as e:
+                            last_error = e
+                            print(f"  Attempt {attempt + 1}/2 for {url_to_try} failed: {str(e)[:100]}")
+                            if attempt < 1:
+                                await asyncio.sleep(3)  # Wait longer before retry
+                    
+                    if navigation_success:
+                        break
+                
+                if not navigation_success:
+                    error_msg = f"Failed to load Zomato after 3 attempts: {str(last_error)}"
+                    if "HTTP2" in str(last_error) or "ERR_HTTP2" in str(last_error):
+                        error_msg = "Zomato is blocking automated access (HTTP2 protocol error). This is a known issue with Zomato's anti-bot protection."
+                    
+                    print(f"✗ {error_msg}")
+                    if websocket:
+                        step_num = 1
+                        if plan:
+                            for idx, action in enumerate(plan):
+                                if action.get("action") == "navigate" and "zomato" in str(action.get("url", "")).lower():
+                                    step_num = idx + 1
+                                    break
+                        
+                        await websocket.send_json({
+                            "type": "action_status",
+                            "action": "navigate",
+                            "status": "error",
+                            "step": step_num,
+                            "total": total_steps,
+                            "details": navigate_action if navigate_action else {"action": "navigate", "url": base_url},
+                            "result": {"status": "error", "message": error_msg}
+                        })
+                    return {
+                        "status": "error",
+                        "message": error_msg,
+                        "suggestion": "Zomato frequently blocks automated access. Try using Swiggy or Google Maps instead: 'find pizza in HSR on Swiggy' or 'find pizza in HSR on Google Maps'"
+                    }
+                
+                await asyncio.sleep(1)  # Let page settle
+                print(f"✓ Page loaded: {page.url}")
+                
+                if websocket:
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": "navigate",
+                        "status": "completed",
+                        "step": step_num,
+                        "total": total_steps,
+                        "details": navigate_action if navigate_action else {"action": "navigate", "url": base_url},
+                        "result": {"status": "success", "url": page.url}
+                    })
+            except Exception as e:
+                print(f"✗ Failed to load Zomato: {e}")
+                if websocket:
+                    step_num = 1
+                    if plan:
+                        for idx, action in enumerate(plan):
+                            if action.get("action") == "navigate" and "zomato" in str(action.get("url", "")).lower():
+                                step_num = idx + 1
+                                break
+                    
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": "navigate",
+                        "status": "error",
+                        "step": step_num,
+                        "total": total_steps,
+                        "details": navigate_action if navigate_action else {"action": "navigate", "url": base_url},
+                        "result": {"status": "error", "message": str(e)}
+                    })
+                return {"status": "error", "message": f"Failed to load Zomato: {str(e)}"}
+            
+            # STEP 2: Click location dropdown
+            if websocket:
+                click_location_dropdown_action = None
+                step_num = 2
+                if plan:
+                    for idx, action in enumerate(plan):
+                        if action.get("action") == "click" and ("location" in str(action.get("selector", "")).lower() or "dropdown" in str(action.get("selector", "")).lower()):
+                            click_location_dropdown_action = action
+                            step_num = idx + 1
+                            break
+                
+                await websocket.send_json({
+                    "type": "action_status",
+                    "action": "click",
+                    "status": "executing",
+                    "step": step_num,
+                    "total": total_steps,
+                    "details": click_location_dropdown_action if click_location_dropdown_action else {"action": "click", "selector": "location dropdown", "description": "Click location dropdown"}
+                })
+            
+            print(f"\n[2/{total_steps}] Clicking location dropdown...")
+            location_dropdown = None
+            dropdown_selectors = [
+                "div[class*='sc-18n4g8v-0']",  # Zomato location dropdown
+                "div[class*='sc-fxmata']",  # Alternative selector
+                "div:has-text('Bangalore')",  # Contains city name
+                "[aria-label*='location']",
+                "[role='button']:has-text('Bangalore')",
+                "div[class*='location']",
+            ]
+            
+            for selector in dropdown_selectors:
+                try:
+                    elements = await page.query_selector_all(selector)
+                    for elem in elements:
+                        text = await elem.text_content()
+                        if text and (city.lower() in text.lower() or "location" in text.lower()):
+                            location_dropdown = elem
+                            break
+                    if location_dropdown:
+                        break
+                except:
+                    continue
+            
+            if not location_dropdown:
+                # Try finding by input field that shows location - click the input itself to open dropdown
+                try:
+                    inputs = await page.query_selector_all("input[type='text']")
+                    for inp in inputs:
+                        placeholder = await inp.get_attribute("placeholder")
+                        value = await inp.get_attribute("value")
+                        if placeholder and ("location" in placeholder.lower() or "area" in placeholder.lower()):
+                            # The input itself might be clickable to open dropdown
+                            location_dropdown = inp
+                            break
+                except:
+                    pass
+            
+            if location_dropdown:
+                await location_dropdown.click()
+                await asyncio.sleep(1)
+                print(f"✓ Location dropdown clicked")
+                
+                if websocket:
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": "click",
+                        "status": "completed",
+                        "step": step_num,
+                        "total": total_steps,
+                        "details": click_location_dropdown_action if click_location_dropdown_action else {"action": "click", "selector": "location dropdown"},
+                        "result": {"status": "success"}
+                    })
+            else:
+                print(f"⚠️ Location dropdown not found, trying to type directly...")
+            
+            # STEP 3: Type location in the dropdown input
+            type_location_action = None
+            if plan:
+                for action in plan:
+                    if action.get("action") == "type" and location.lower() in str(action.get("text", "")).lower():
+                        type_location_action = action
+                        break
+            
+            if websocket:
+                step_num = 3
+                if plan and type_location_action:
+                    for idx, action in enumerate(plan):
+                        if action == type_location_action:
+                            step_num = idx + 1
+                            break
+                
+                await websocket.send_json({
+                    "type": "action_status",
+                    "action": "type",
+                    "status": "executing",
+                    "step": step_num,
+                    "total": total_steps,
+                    "details": type_location_action if type_location_action else {"action": "type", "selector": "location input", "text": location, "description": f"Type location: {location}"}
+                })
+            
+            print(f"\n[3/{total_steps}] Typing location: '{location}'")
+            location_input = None
+            
+            # Find the location input that appears after clicking dropdown
+            await asyncio.sleep(1)  # Wait for dropdown to open
+            
+            location_input_selectors = [
+                "input[placeholder*='location']",
+                "input[placeholder*='area']",
+                "input[type='text']",
+            ]
+            
+            for selector in location_input_selectors:
+                try:
+                    inputs = await page.query_selector_all(selector)
+                    for inp in inputs:
+                        placeholder = await inp.get_attribute("placeholder")
+                        if placeholder and ("location" in placeholder.lower() or "area" in placeholder.lower()):
+                            location_input = inp
+                            break
+                    if location_input:
+                        break
+                except:
+                    continue
+            
+            # If not found, use first visible text input
+            if not location_input:
+                try:
+                    all_inputs = await page.query_selector_all("input[type='text']")
+                    for inp in all_inputs:
+                        is_visible = await inp.is_visible()
+                        if is_visible:
+                            location_input = inp
+                            break
+                except:
+                    pass
+            
+            if location_input:
+                await location_input.fill("")
+                await location_input.type(location, delay=100)
+                await asyncio.sleep(2)  # Wait for suggestions
+                print(f"✓ Location typed, waiting for suggestions...")
+                
+                if websocket:
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": "type",
+                        "status": "completed",
+                        "step": step_num,
+                        "total": total_steps,
+                        "details": type_location_action if type_location_action else {"action": "type", "text": location},
+                        "result": {"status": "success"}
+                    })
+            else:
+                print(f"⚠️ Location input not found")
+            
+            # STEP 4: Select location suggestion
+            click_location_suggestion_action = None
+            if plan:
+                for action in plan:
+                    if action.get("action") == "click" and ("suggestion" in str(action.get("selector", "")).lower() or "location" in str(action.get("selector", "")).lower()):
+                        click_location_suggestion_action = action
+                        break
+            
+            if websocket:
+                step_num = 4
+                if plan and click_location_suggestion_action:
+                    for idx, action in enumerate(plan):
+                        if action == click_location_suggestion_action:
+                            step_num = idx + 1
+                            break
+                
+                await websocket.send_json({
+                    "type": "action_status",
+                    "action": "click",
+                    "status": "executing",
+                    "step": step_num,
+                    "total": total_steps,
+                    "details": click_location_suggestion_action if click_location_suggestion_action else {"action": "click", "selector": "location suggestion", "description": "Click location suggestion"}
+                })
+            
+            print(f"\n[4/{total_steps}] Selecting location suggestion...")
+            
+            # Find suggestions - look for dropdown items
+            suggestion_selectors = [
+                "div[class*='sc-']",  # Zomato suggestion items
+                "[role='option']",
+                "div[class*='suggestion']",
+                "li[class*='suggestion']",
+                "div[class*='dropdown'] div",
+            ]
+            
+            selected_suggestion = None
+            location_lower = location.lower()
+            
+            for selector in suggestion_selectors:
+                try:
+                    suggestions = await page.query_selector_all(selector)
+                    for suggestion in suggestions:
+                        text = await suggestion.text_content()
+                        if text:
+                            text_lower = text.lower()
+                            # Check for exact match (case-insensitive)
+                            if location_lower in text_lower or text_lower in location_lower:
+                                selected_suggestion = suggestion
+                                print(f"✓ Found exact location match: '{text[:60]}'")
+                                break
+                    if selected_suggestion:
+                        break
+                except:
+                    continue
+            
+            # If no exact match, select first suggestion
+            if not selected_suggestion:
+                for selector in suggestion_selectors:
+                    try:
+                        suggestions = await page.query_selector_all(selector)
+                        if len(suggestions) > 0:
+                            selected_suggestion = suggestions[0]
+                            text = await selected_suggestion.text_content()
+                            print(f"✓ Selected first suggestion: '{text[:60] if text else 'N/A'}'")
+                            break
+                    except:
+                        continue
+            
+            if selected_suggestion:
+                await selected_suggestion.click()
+                await asyncio.sleep(2)  # Wait for location to be set
+                print(f"✓ Location selected")
+                
+                if websocket:
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": "click",
+                        "status": "completed",
+                        "step": step_num,
+                        "total": total_steps,
+                        "details": click_location_suggestion_action if click_location_suggestion_action else {"action": "click", "selector": "location suggestion"},
+                        "result": {"status": "success"}
+                    })
+            else:
+                print(f"⚠️ No location suggestion found, continuing...")
+            
+            # STEP 5: Type food query
+            type_food_action = None
+            if plan:
+                for action in plan:
+                    if action.get("action") == "type" and query.lower() in str(action.get("text", "")).lower() and action != type_location_action:
+                        type_food_action = action
+                        break
+            
+            if websocket:
+                step_num = 5
+                if plan and type_food_action:
+                    for idx, action in enumerate(plan):
+                        if action == type_food_action:
+                            step_num = idx + 1
+                            break
+                
+                await websocket.send_json({
+                    "type": "action_status",
+                    "action": "type",
+                    "status": "executing",
+                    "step": step_num,
+                    "total": total_steps,
+                    "details": type_food_action if type_food_action else {"action": "type", "selector": "food search", "text": query, "description": f"Search for: {query}"}
+                })
+            
+            print(f"\n[5/{total_steps}] Typing food query: '{query}'")
+            
+            # Find food search input (usually on the right side of location)
+            food_search_input = None
+            food_search_selectors = [
+                "input[placeholder*='restaurant']",
+                "input[placeholder*='cuisine']",
+                "input[placeholder*='dish']",
+                "input[placeholder*='Search for restaurant']",
+            ]
+            
+            for selector in food_search_selectors:
+                try:
+                    inp = await page.query_selector(selector)
+                    if inp:
+                        is_visible = await inp.is_visible()
+                        if is_visible:
+                            food_search_input = inp
+                            break
+                except:
+                    continue
+            
+            # If not found, try finding by position (usually second input or has different placeholder)
+            if not food_search_input:
+                try:
+                    all_inputs = await page.query_selector_all("input[type='text']")
+                    for inp in all_inputs:
+                        placeholder = await inp.get_attribute("placeholder")
+                        is_visible = await inp.is_visible()
+                        if is_visible and placeholder and ("restaurant" in placeholder.lower() or "cuisine" in placeholder.lower() or "dish" in placeholder.lower() or "search" in placeholder.lower()):
+                            food_search_input = inp
+                            break
+                except:
+                    pass
+            
+            if food_search_input:
+                await food_search_input.click()
+                await asyncio.sleep(0.3)
+                await food_search_input.fill("")
+                await food_search_input.type(query, delay=100)
+                await asyncio.sleep(2)  # Wait for dish suggestions
+                print(f"✓ Food query typed")
+                
+                if websocket:
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": "type",
+                        "status": "completed",
+                        "step": step_num,
+                        "total": total_steps,
+                        "details": type_food_action if type_food_action else {"action": "type", "text": query},
+                        "result": {"status": "success"}
+                    })
+            else:
+                print(f"⚠️ Food search input not found")
+            
+            # STEP 6: Click first dish suggestion
+            click_dish_action = None
+            if plan:
+                for action in plan:
+                    if action.get("action") == "click" and ("dish" in str(action.get("selector", "")).lower() or "suggestion" in str(action.get("selector", "")).lower()):
+                        click_dish_action = action
+                        break
+            
+            if websocket:
+                step_num = 6
+                if plan and click_dish_action:
+                    for idx, action in enumerate(plan):
+                        if action == click_dish_action:
+                            step_num = idx + 1
+                            break
+                
+                await websocket.send_json({
+                    "type": "action_status",
+                    "action": "click",
+                    "status": "executing",
+                    "step": step_num,
+                    "total": total_steps,
+                    "details": click_dish_action if click_dish_action else {"action": "click", "selector": "dish suggestion", "description": "Click first dish suggestion"}
+                })
+            
+            print(f"\n[6/{total_steps}] Clicking first dish suggestion...")
+            
+            # Find dish suggestions dropdown
+            dish_suggestion = None
+            dish_suggestion_selectors = [
+                "div[class*='sc-']",  # Zomato suggestion items
+                "[role='option']",
+                "div[class*='suggestion']",
+                "li[class*='suggestion']",
+                "div[class*='dropdown'] div",
+                "a[href*='/bangalore/']",  # Restaurant links
+            ]
+            
+            for selector in dish_suggestion_selectors:
+                try:
+                    suggestions = await page.query_selector_all(selector)
+                    if len(suggestions) > 0:
+                        # Get first suggestion that's visible and clickable
+                        for suggestion in suggestions:
+                            is_visible = await suggestion.is_visible()
+                            if is_visible:
+                                dish_suggestion = suggestion
+                                text = await suggestion.text_content()
+                                print(f"✓ Found dish suggestion: '{text[:60] if text else 'N/A'}'")
+                                break
+                        if dish_suggestion:
+                            break
+                except:
+                    continue
+            
+            if dish_suggestion:
+                await dish_suggestion.click()
+                await asyncio.sleep(3)  # Wait for results to load
+                print(f"✓ Dish suggestion clicked, waiting for results...")
+                
+                if websocket:
+                    await websocket.send_json({
+                        "type": "action_status",
+                        "action": "click",
+                        "status": "completed",
+                        "step": step_num,
+                        "total": total_steps,
+                        "details": click_dish_action if click_dish_action else {"action": "click", "selector": "dish suggestion"},
+                        "result": {"status": "success"}
+                    })
+            else:
+                print(f"⚠️ No dish suggestion found, pressing Enter...")
+                if food_search_input:
+                    await food_search_input.press("Enter")
+                    await asyncio.sleep(3)
+            
+            # STEP 7: Wait for restaurant results
+            if websocket:
+                wait_action = None
+                step_num = 7
+                if plan:
+                    for idx, action in enumerate(plan):
+                        if action.get("action") == "wait_for":
+                            wait_action = action
+                            step_num = idx + 1
+                            break
+                
+                await websocket.send_json({
+                    "type": "action_status",
+                    "action": "wait_for",
+                    "status": "executing",
+                    "step": step_num,
+                    "total": total_steps,
+                    "details": wait_action if wait_action else {"action": "wait_for", "selector": "restaurant cards", "description": "Wait for restaurant results"}
+                })
+            
+            print(f"\n[7/{total_steps}] Waiting for restaurant results...")
+            
+            # Wait for restaurant cards to appear
+            restaurant_container_selectors = [
+                "div[class*='sc-evWYkj']",  # Zomato restaurant card
+                "div[class*='sc-fYAFcb']",
+                "a[href*='/bangalore/']",
+                "div[class*='restaurant']",
+                "[data-testid*='restaurant']",
+            ]
+            
+            results_loaded = False
+            for selector in restaurant_container_selectors:
+                try:
+                    await page.wait_for_selector(selector, state="visible", timeout=10000)
+                    results_loaded = True
+                    print(f"✓ Restaurant results loaded")
+                    break
+                except:
+                    continue
+            
+            if websocket:
+                await websocket.send_json({
+                    "type": "action_status",
+                    "action": "wait_for",
+                    "status": "completed",
+                    "step": step_num,
+                    "total": total_steps,
+                    "details": wait_action if wait_action else {"action": "wait_for"},
+                    "result": {"status": "success"}
+                })
+            
+            # Scroll to load more results
+            await page.evaluate("window.scrollBy(0, 500)")
+            await asyncio.sleep(2)
+            await page.evaluate("window.scrollBy(0, 500)")
+            await asyncio.sleep(2)
+            
+            # STEP 8: Extract restaurant data
+            extract_action = None
+            if plan:
+                for action in plan:
+                    if action.get("action") == "extract":
+                        extract_action = action
+                        break
+            
+            if websocket:
+                await websocket.send_json({
+                    "type": "action_status",
+                    "action": "extract",
+                    "status": "executing",
+                    "step": total_steps,
+                    "total": total_steps,
+                    "details": extract_action if extract_action else {"action": "extract", "limit": limit, "description": "Extract restaurant data"}
+                })
+            
+            print(f"\n[{total_steps}/{total_steps}] Extracting restaurant data...")
+            
+            # Extract restaurant data using JavaScript
+            extraction_js = """
+            (async function({limit}) {
+                const results = [];
+                
+                // Find restaurant cards
+                const cardSelectors = [
+                    'div[class*="sc-evWYkj"]',
+                    'div[class*="sc-fYAFcb"]',
+                    'a[href*="/bangalore/"]',
+                    'div[class*="restaurant"]'
+                ];
+                
+                let cards = [];
+                for (const selector of cardSelectors) {
+                    cards = Array.from(document.querySelectorAll(selector));
+                    if (cards.length > 0) break;
+                }
+                
+                // Limit to requested number
+                cards = cards.slice(0, limit);
+                
+                for (const card of cards) {
+                    try {
+                        // Extract name
+                        let name = '';
+                        const nameSelectors = ['h4', 'h3', 'a[href*="/bangalore/"]', '[class*="sc-"]'];
+                        for (const sel of nameSelectors) {
+                            const elem = card.querySelector(sel);
+                            if (elem) {
+                                name = elem.textContent?.trim() || '';
+                                if (name) break;
+                            }
+                        }
+                        
+                        // Extract rating
+                        let rating = '';
+                        const ratingSelectors = ['[aria-label*="star"]', '[class*="rating"]', '[class*="sc-"]'];
+                        for (const sel of ratingSelectors) {
+                            const elem = card.querySelector(sel);
+                            if (elem) {
+                                const text = elem.textContent || elem.getAttribute('aria-label') || '';
+                                const match = text.match(/(\\d+\\.?\\d*)/);
+                                if (match) {
+                                    rating = match[1];
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // Extract cuisine
+                        let cuisine = '';
+                        const cuisineText = card.textContent || '';
+                        const cuisineMatch = cuisineText.match(/([A-Za-z]+(?:,\\s*[A-Za-z]+)*)/);
+                        if (cuisineMatch) {
+                            cuisine = cuisineMatch[1].substring(0, 100);
+                        }
+                        
+                        // Extract location
+                        let location = '';
+                        const locationSelectors = ['[class*="location"]', '[class*="area"]'];
+                        for (const sel of locationSelectors) {
+                            const elem = card.querySelector(sel);
+                            if (elem) {
+                                location = elem.textContent?.trim() || '';
+                                if (location) break;
+                            }
+                        }
+                        
+                        // Extract price
+                        let price = '';
+                        const priceText = card.textContent || '';
+                        const priceMatch = priceText.match(/₹(\\d+)/);
+                        if (priceMatch) {
+                            price = '₹' + priceMatch[1];
+                        }
+                        
+                        // Extract URL
+                        let url = '';
+                        const link = card.querySelector('a[href]') || card.closest('a[href]');
+                        if (link) {
+                            url = link.href || '';
+                        }
+                        
+                        if (name) {
+                            results.push({
+                                name: name,
+                                rating: rating || 'N/A',
+                                cuisine: cuisine || 'N/A',
+                                location: location || 'N/A',
+                                price: price || 'N/A',
+                                url: url || ''
+                            });
+                        }
+                    } catch (e) {
+                        console.error('Error extracting restaurant:', e);
+                    }
+                }
+                
+                return results;
+            })
+            """
+            
+            data = await page.evaluate(extraction_js, {"limit": limit})
+            
+            print(f"\n=== EXTRACTION COMPLETE ===")
+            print(f"Extracted {len(data)} restaurants")
+            for i, item in enumerate(data[:3], 1):
+                print(f"  {i}. {item.get('name', 'N/A')} - Rating: {item.get('rating', 'N/A')}")
+            
+            result = {
+                "status": "success",
+                "data": data,
+                "count": len(data)
+            }
+            
+            # Send extract action with results
+            if websocket:
+                await websocket.send_json({
+                    "type": "action_status",
+                    "action": "extract",
+                    "status": "completed",
+                    "step": total_steps,
+                    "total": total_steps,
+                    "result": result,
+                    "details": extract_action if extract_action else {"action": "extract", "limit": limit}
+                })
+            
+            return result
+            
+        except Exception as e:
+            import traceback
+            return {
+                "status": "error",
+                "message": str(e),
+                "traceback": traceback.format_exc()
+            }
+
 class YouTubeHandler:
     """Handler for YouTube-specific operations."""
     
