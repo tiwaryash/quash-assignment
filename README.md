@@ -170,11 +170,11 @@ The **Quash Browser Control Agent** is an enterprise-grade conversational browse
 
 ### Prerequisites
 
-- **Docker & Docker Compose** (Recommended) OR
+- **Docker & Docker Compose** (Preferred) OR
 - **Python 3.9+** and **Node.js 18+**
 - **OpenAI API Key** ([Get one here](https://platform.openai.com/account/api-keys))
 
-### Option 1: Docker Setup (Recommended)
+### Option 1: Docker Setup (Preferred)
 
 ```bash
 # Clone the repository
