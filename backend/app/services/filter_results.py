@@ -1,9 +1,10 @@
 """Filter and sort extracted results for various use cases."""
 import asyncio
+import re
+
 
 def filter_by_price(results: list, max_price: float = None, min_price: float = None) -> list:
     """Filter results by price range."""
-    import re
     
     filtered = []
     for item in results:
@@ -67,7 +68,6 @@ def filter_by_rating(results: list, min_rating: float = None) -> list:
         
         # Handle both string and numeric ratings
         if isinstance(rating, str):
-            import re
             rating_match = re.search(r'(\d+\.?\d*)', str(rating))
             if rating_match:
                 try:
@@ -107,7 +107,6 @@ def extract_filter_options(results: list) -> dict:
     
     Returns a dict with consolidated filter options (excluding colors - those come from pages).
     """
-    import re
     
     filter_options = {
         "memory": set(),
@@ -228,7 +227,6 @@ def filter_by_product_relevance(results: list, query: str) -> list:
     Returns:
         Filtered list containing only relevant products
     """
-    import re
     
     if not query:
         return results
@@ -371,7 +369,6 @@ async def extract_variants_from_product_pages(browser_agent, product_urls: list,
             continue
     
     # Convert sets to sorted lists
-    import re
     result = {}
     for key, values in variant_options.items():
         if values:
@@ -398,7 +395,6 @@ def apply_variant_filters(results: list, filters: dict) -> list:
     if not filters:
         return results
     
-    import re
     
     filtered = []
     for item in results:

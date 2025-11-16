@@ -509,7 +509,6 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                     url = action.get("url", "")
                     if "zomato.com" in url.lower():
                         # Extract city from URL like zomato.com/bangalore
-                        import re
                         city_match = re.search(r'zomato\.com/([^/]+)', url.lower())
                         if city_match:
                             city = city_match.group(1)

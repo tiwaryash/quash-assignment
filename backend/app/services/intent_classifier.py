@@ -280,7 +280,6 @@ You must be precise and handle edge cases correctly. Always return valid, well-s
         
         # If limit not extracted by LLM, try to extract from instruction
         if limit is None:
-            import re
             # Patterns: "top 3", "first 3", "3 results", "give me 3", "top three"
             limit_patterns = [
                 r'top\s+(\d+)',

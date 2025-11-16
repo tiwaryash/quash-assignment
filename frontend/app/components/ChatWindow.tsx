@@ -15,7 +15,6 @@ import {
   ShieldAlert,
   Wifi,
   WifiOff,
-  Sparkles,
   Lightbulb,
   ArrowRight
 } from 'lucide-react';
@@ -67,6 +66,31 @@ export default function ChatWindow() {
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  };
+
+  // Format site/platform names to human-readable format
+  const formatSiteName = (name: string): string => {
+    if (!name) return name;
+    
+    const nameMap: Record<string, string> = {
+      'google_maps': 'Google Maps',
+      'google-maps': 'Google Maps',
+      'swiggy': 'Swiggy',
+      'flipkart': 'Flipkart',
+      'amazon': 'Amazon',
+    };
+    
+    // Check exact match first
+    if (nameMap[name.toLowerCase()]) {
+      return nameMap[name.toLowerCase()];
+    }
+    
+    // Format snake_case or kebab-case to Title Case
+    return name
+      .replace(/[_-]/g, ' ')
+      .split(' ')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
   };
 
   useEffect(() => {
@@ -195,9 +219,13 @@ export default function ChatWindow() {
       }
       
       wsRef.current.send(JSON.stringify(payload));
+      
+      // Format the message for display (convert site names to human-readable)
+      const displayMessage = formatSiteName(messageToSend);
+      
       setMessages(prev => [...prev, {
         type: 'user',
-        message: messageToSend,
+        message: displayMessage,
         timestamp: Date.now()
       }]);
       setInput('');
@@ -270,7 +298,6 @@ export default function ChatWindow() {
                   className="group px-3 py-2 bg-black/50 hover:bg-yellow-500/10 border border-yellow-500/30 hover:border-yellow-500/60 text-yellow-500/80 hover:text-yellow-500 rounded-lg text-xs font-semibold transition-all hover-lift"
                 >
                   <div className="flex items-center gap-1.5">
-                    <Sparkles className="w-3 h-3 group-hover:rotate-12 transition-transform" />
                     {example}
                   </div>
                 </button>
@@ -306,7 +333,7 @@ export default function ChatWindow() {
             return (
               <div key={idx} className="flex justify-end animate-slide-in-right">
                 <div className="max-w-[80%] bg-gradient-to-r from-yellow-500 to-yellow-600 text-black rounded-2xl rounded-br-md px-5 py-3 shadow-lg border-2 border-yellow-400">
-                  <p className="text-sm leading-relaxed font-semibold">{msg.message}</p>
+                  <p className="text-sm leading-relaxed font-semibold">{formatSiteName(msg.message || '')}</p>
                 </div>
               </div>
             );
@@ -368,9 +395,6 @@ export default function ChatWindow() {
               <div key={idx} className="animate-slide-in-left">
                 <div className="bg-gradient-to-br from-yellow-500/10 to-orange-500/10 border-2 border-yellow-500/50 rounded-2xl p-6 yellow-glow">
                   <div className="flex items-center gap-3 mb-6">
-                    <div className="bg-yellow-500/20 p-2 rounded-xl">
-                      <Sparkles className="w-7 h-7 text-yellow-500" />
-                    </div>
                     <span className="font-black text-yellow-500 text-xl">Comparison Summary</span>
                   </div>
                   
@@ -505,11 +529,14 @@ export default function ChatWindow() {
           }
           
           if (msg.type === 'status') {
+            // Format any site names in status messages (e.g., "Got it! Processing: find pizza on google_maps")
+            const formattedMessage = msg.message ? msg.message.replace(/\b(google_maps|google-maps|swiggy|zomato|flipkart|amazon|myntra|snapdeal)\b/gi, (match) => formatSiteName(match)) : msg.message;
+            
             return (
               <div key={idx} className="flex justify-center animate-slide-in">
                 <div className="bg-black/40 border border-yellow-500/30 rounded-full px-5 py-2 text-sm text-yellow-500/70 font-medium inline-flex items-center gap-2">
                   <Circle className="w-3 h-3" />
-                  {msg.message}
+                  {formattedMessage}
                 </div>
               </div>
             );

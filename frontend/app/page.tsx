@@ -2,7 +2,6 @@
 
 import ChatWindow from './components/ChatWindow';
 import AnimatedGlobe from './components/AnimatedGlobe';
-import { Zap } from 'lucide-react';
 
 export default function Home() {
   return (
@@ -36,7 +35,6 @@ export default function Home() {
           
           <div className="flex items-center justify-center gap-2 text-yellow-500/80 text-sm font-medium">
             <p>AI-Powered Browser Automation</p>
-            <Zap className="w-4 h-4" />
           </div>
         </div>
         
