@@ -55,17 +55,22 @@ class ConversationManager:
             elif intent_info["intent"] == "product_search" and not intent_info["sites"]:
                 # Check if comparison was requested
                 if intent_info.get("comparison"):
-                    return {
-                        "type": "clarification",
-                        "question": "Which e-commerce sites would you like to compare?",
-                        "options": [
-                            {"value": "flipkart,amazon", "label": "Both Flipkart and Amazon"},
-                            {"value": "flipkart", "label": "Flipkart only"},
-                            {"value": "amazon", "label": "Amazon only"}
-                        ],
-                        "field": "sites",
-                        "context": "product_search_comparison"
-                    }
+                    # But first check if instruction already mentions both sites explicitly
+                    instruction_lower = instruction.lower()
+                    has_both_sites = ("flipkart" in instruction_lower and "amazon" in instruction_lower)
+                    
+                    if not has_both_sites:
+                        return {
+                            "type": "clarification",
+                            "question": "Which e-commerce sites would you like to compare?",
+                            "options": [
+                                {"value": "flipkart,amazon", "label": "Both Flipkart and Amazon"},
+                                {"value": "flipkart", "label": "Flipkart only"},
+                                {"value": "amazon", "label": "Amazon only"}
+                            ],
+                            "field": "sites",
+                            "context": "product_search_comparison"
+                        }
                 else:
                     return {
                         "type": "clarification",
@@ -81,20 +86,25 @@ class ConversationManager:
             
             # For comparison with only one site specified
             elif intent_info.get("comparison") and len(intent_info["sites"]) < 2:
-                current_site = intent_info["sites"][0] if intent_info["sites"] else "flipkart"
-                other_options = []
-                if current_site != "flipkart":
-                    other_options.append({"value": "flipkart", "label": "Flipkart"})
-                if current_site != "amazon":
-                    other_options.append({"value": "amazon", "label": "Amazon"})
+                # Check if instruction already mentions both sites explicitly
+                instruction_lower = instruction.lower()
+                has_both_sites = ("flipkart" in instruction_lower and "amazon" in instruction_lower)
                 
-                return {
-                    "type": "clarification",
-                    "question": f"You want to compare products. You mentioned {current_site}. Which other site would you like to compare with?",
-                    "options": other_options + [{"value": "skip", "label": "Just search on " + current_site}],
-                    "field": "additional_site",
-                    "context": "product_search_comparison"
-                }
+                if not has_both_sites:
+                    current_site = intent_info["sites"][0] if intent_info["sites"] else "flipkart"
+                    other_options = []
+                    if current_site != "flipkart":
+                        other_options.append({"value": "flipkart", "label": "Flipkart"})
+                    if current_site != "amazon":
+                        other_options.append({"value": "amazon", "label": "Amazon"})
+                    
+                    return {
+                        "type": "clarification",
+                        "question": f"You want to compare products. You mentioned {current_site}. Which other site would you like to compare with?",
+                        "options": other_options + [{"value": "skip", "label": "Just search on " + current_site}],
+                        "field": "additional_site",
+                        "context": "product_search_comparison"
+                    }
         
         # For ambiguous queries, ask for more details
         if intent_info["intent"] == "general":
@@ -167,7 +177,8 @@ class ConversationManager:
         # Handle product search site selection
         elif context == "product_search" or (field == "site" and "product" in context):
             if "both" in response_lower or ("flipkart" in response_lower and "amazon" in response_lower):
-                updated_instruction = f"Compare {original_instruction} on both Flipkart and Amazon"
+                # Explicitly mention both sites to avoid second clarification
+                updated_instruction = f"Compare {original_instruction} on Flipkart and Amazon"
             elif "flipkart" in response_lower:
                 updated_instruction = f"{original_instruction} on Flipkart"
             elif "amazon" in response_lower:
@@ -177,7 +188,8 @@ class ConversationManager:
             
             return {
                 "updated_instruction": updated_instruction,
-                "clarification_resolved": True
+                "clarification_resolved": True,
+                "enable_comparison": "both" in response_lower or ("flipkart" in response_lower and "amazon" in response_lower)
             }
         
         # Handle comparison clarifications
@@ -186,20 +198,26 @@ class ConversationManager:
             if "," in response_lower:
                 sites = [s.strip() for s in response_lower.split(",")]
                 updated_instruction = f"Compare {original_instruction} on {' and '.join(sites)}"
+                enable_comparison = len(sites) > 1
             elif "both" in response_lower:
                 updated_instruction = f"Compare {original_instruction} on Flipkart and Amazon"
+                enable_comparison = True
             elif "flipkart" in response_lower and "amazon" in response_lower:
                 updated_instruction = f"Compare {original_instruction} on Flipkart and Amazon"
+                enable_comparison = True
             elif "skip" in response_lower:
                 # User wants to skip comparison
                 updated_instruction = original_instruction
+                enable_comparison = False
             else:
                 # Single site selected
                 updated_instruction = f"{original_instruction} on {response_lower}"
+                enable_comparison = False
             
             return {
                 "updated_instruction": updated_instruction,
-                "clarification_resolved": True
+                "clarification_resolved": True,
+                "enable_comparison": enable_comparison
             }
         
         # Handle additional site for comparison

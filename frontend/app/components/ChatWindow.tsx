@@ -51,6 +51,7 @@ interface Message {
   form_data?: any;
   response_data?: any;
   messages?: Array<{type: string; text: string}>;
+  summary?: any;
 }
 
 export default function ChatWindow() {
@@ -355,6 +356,99 @@ export default function ChatWindow() {
                         )}
                       </div>
                     ))}
+                  </div>
+                </div>
+              </div>
+            );
+          }
+          
+          if (msg.type === 'comparison_summary') {
+            const summary = (msg as any).summary;
+            return (
+              <div key={idx} className="animate-slide-in-left">
+                <div className="bg-gradient-to-br from-yellow-500/10 to-orange-500/10 border-2 border-yellow-500/50 rounded-2xl p-6 yellow-glow">
+                  <div className="flex items-center gap-3 mb-6">
+                    <div className="bg-yellow-500/20 p-2 rounded-xl">
+                      <Sparkles className="w-7 h-7 text-yellow-500" />
+                    </div>
+                    <span className="font-black text-yellow-500 text-xl">Comparison Summary</span>
+                  </div>
+                  
+                  {/* Site Comparisons */}
+                  {summary && summary.sites && Object.entries(summary.sites).map(([siteName, siteData]: [string, any]) => (
+                    <div key={siteName} className="mb-5 bg-black/40 rounded-xl p-4 border border-yellow-500/20">
+                      <h3 className="font-black text-yellow-400 text-lg mb-3">{siteName}</h3>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="text-yellow-300/70">Products found:</span>
+                          <span className="font-bold text-yellow-300">{siteData.count}</span>
+                        </div>
+                        {siteData.price_range?.min && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-yellow-300/70">Price range:</span>
+                            <span className="font-bold text-yellow-300">
+                              ₹{siteData.price_range.min.toLocaleString()} - ₹{siteData.price_range.max.toLocaleString()}
+                            </span>
+                          </div>
+                        )}
+                        {siteData.avg_price && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-yellow-300/70">Average price:</span>
+                            <span className="font-bold text-yellow-300">₹{siteData.avg_price.toLocaleString()}</span>
+                          </div>
+                        )}
+                        {siteData.avg_rating && (
+                          <div className="flex items-center justify-between">
+                            <span className="text-yellow-300/70">Average rating:</span>
+                            <span className="font-bold text-yellow-300">{siteData.avg_rating.toFixed(1)}⭐</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  
+                  {/* Best Deal */}
+                  {summary?.best_overall_deal && (
+                    <div className="mt-6 bg-gradient-to-r from-green-500/20 to-emerald-500/20 rounded-xl p-4 border-2 border-green-500/50">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-2xl">💰</span>
+                        <span className="font-black text-green-400 text-lg">Best Deal</span>
+                      </div>
+                      <div className="text-yellow-300 font-semibold">
+                        {summary.best_overall_deal.name}
+                      </div>
+                      <div className="flex items-center gap-4 mt-2 text-sm">
+                        <span className="text-green-400 font-black text-xl">
+                          ₹{summary.best_overall_deal.price?.toLocaleString()}
+                        </span>
+                        <span className="text-yellow-300/70">on {summary.best_overall_deal.site}</span>
+                        {summary.best_overall_deal.rating && (
+                          <span className="text-yellow-400">{summary.best_overall_deal.rating}⭐</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Recommendations */}
+                  <div className="mt-6 space-y-3">
+                    {summary?.lowest_price_site && (
+                      <div className="flex items-center gap-3 bg-black/40 rounded-lg p-3 border border-blue-500/30">
+                        <span className="text-xl"></span>
+                        <div>
+                          <span className="text-blue-400 font-bold">Lowest Prices: </span>
+                          <span className="text-yellow-300">{summary.lowest_price_site} generally has better prices</span>
+                        </div>
+                      </div>
+                    )}
+                    {summary?.highest_rated_site && (
+                      <div className="flex items-center gap-3 bg-black/40 rounded-lg p-3 border border-purple-500/30">
+                        <span className="text-xl"></span>
+                        <div>
+                          <span className="text-purple-400 font-bold">Best Ratings: </span>
+                          <span className="text-yellow-300">{summary.highest_rated_site} has higher-rated products</span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
               </div>

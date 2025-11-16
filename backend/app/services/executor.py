@@ -95,6 +95,14 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                             return
                 
                 instruction = clarification_result["updated_instruction"]
+                
+                # Store comparison flag if provided
+                if clarification_result.get("enable_comparison"):
+                    if session_id not in manager.session_states:
+                        manager.session_states[session_id] = {}
+                    manager.session_states[session_id]["enable_comparison"] = True
+                    manager.session_states[session_id]["comparison_results"] = {}
+                
                 conversation_manager.clear_clarification(session_id)
                 await websocket.send_json({
                     "type": "status",
@@ -1474,12 +1482,40 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                     "warning": result.get("warning", False)  # Include warning flag
                 })
                 
+                # FEATURE: Store results per-site if comparison is enabled
+                if action_type == "extract" and result.get("status") == "success" and result.get("data"):
+                    # Check if comparison mode is enabled
+                    comparison_enabled = False
+                    if session_id in manager.session_states:
+                        comparison_enabled = manager.session_states[session_id].get("enable_comparison", False)
+                    
+                    if comparison_enabled:
+                        # Detect current site from recent navigate actions
+                        current_site = None
+                        for prev_action in plan[:idx]:
+                            if prev_action.get("action") == "navigate":
+                                url = prev_action.get("url", "")
+                                if "flipkart" in url.lower():
+                                    current_site = "Flipkart"
+                                elif "amazon" in url.lower():
+                                    current_site = "Amazon"
+                        
+                        if current_site and session_id in manager.session_states:
+                            if "comparison_results" not in manager.session_states[session_id]:
+                                manager.session_states[session_id]["comparison_results"] = {}
+                            manager.session_states[session_id]["comparison_results"][current_site] = result.get("data", [])
+                
                 # FEATURE: Extract filter options after product extraction
                 if action_type == "extract" and result.get("status") == "success" and result.get("data"):
                     intent_info = action.get("_intent", {})
                     
+                    # Skip filter questions if comparison mode is enabled
+                    skip_filters = False
+                    if session_id in manager.session_states:
+                        skip_filters = manager.session_states[session_id].get("enable_comparison", False)
+                    
                     # Only for product search, check if we should ask for filter refinement
-                    if intent_info.get("intent") == "product_search":
+                    if intent_info.get("intent") == "product_search" and not skip_filters:
                         # Step 1: Extract basic filter options from product names (memory, storage, size - NO COLORS)
                         filter_options = extract_filter_options(result["data"])
                         
@@ -1559,7 +1595,7 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                                     "message": f"Found {len(result['data'])} products with multiple options available:",
                                     "filters": consolidated_filters,
                                     "filter_summary": filter_summary,
-                                    "question": "Would you like to filter by any specific option? (e.g., '256GB Silver' or 'skip' to see all)",
+                                    "question": "Would you like to filter by any specific option?",
                                     "context": "product_filter_refinement"
                                 })
                                 
@@ -1644,6 +1680,117 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
         # Only cleanup and send completion if we actually executed a plan
         # (not if we returned early for clarification)
         if plan is not None:
+            # Generate comparison summary if enabled
+            if session_id in manager.session_states and manager.session_states[session_id].get("enable_comparison"):
+                comparison_results = manager.session_states[session_id].get("comparison_results", {})
+                
+                if len(comparison_results) > 1:  # We have results from multiple sites
+                    await websocket.send_json({
+                        "type": "status",
+                        "message": "Generating comparison summary..."
+                    })
+                    
+                    # Generate comparison summary
+                    summary = {
+                        "total_sites": len(comparison_results),
+                        "sites": {},
+                        "best_overall_deal": None,
+                        "lowest_price_site": None,
+                        "highest_rated_site": None,
+                        "price_comparison": {}
+                    }
+                    
+                    all_products = []
+                    
+                    for site_name, products in comparison_results.items():
+                        if not products:
+                            summary["sites"][site_name] = {
+                                "count": 0,
+                                "avg_price": None,
+                                "avg_rating": None,
+                                "price_range": {"min": None, "max": None}
+                            }
+                            continue
+                        
+                        # Calculate stats for this site
+                        prices = [p.get("price") for p in products if p.get("price") and isinstance(p.get("price"), (int, float))]
+                        ratings = [p.get("rating") for p in products if p.get("rating") and isinstance(p.get("rating"), (int, float))]
+                        
+                        site_summary = {
+                            "count": len(products),
+                            "avg_price": sum(prices) / len(prices) if prices else None,
+                            "avg_rating": sum(ratings) / len(ratings) if ratings else None,
+                            "price_range": {
+                                "min": min(prices) if prices else None,
+                                "max": max(prices) if prices else None
+                            },
+                            "products": products[:3]  # Top 3 from this site
+                        }
+                        
+                        summary["sites"][site_name] = site_summary
+                        
+                        # Add site to all products for finding best deals
+                        for product in products:
+                            all_products.append({
+                                **product,
+                                "site": site_name
+                            })
+                    
+                    # Find best deals
+                    if all_products:
+                        # Sort by price (lowest first)
+                        products_with_price = [p for p in all_products if p.get("price")]
+                        if products_with_price:
+                            products_with_price.sort(key=lambda x: x["price"])
+                            summary["best_overall_deal"] = products_with_price[0]
+                            summary["lowest_price_site"] = products_with_price[0]["site"]
+                        
+                        # Find site with best average rating
+                        site_ratings = {}
+                        for site_name, site_data in summary["sites"].items():
+                            if site_data.get("avg_rating"):
+                                site_ratings[site_name] = site_data["avg_rating"]
+                        
+                        if site_ratings:
+                            summary["highest_rated_site"] = max(site_ratings, key=site_ratings.get)
+                    
+                    # Generate human-readable summary message
+                    summary_message = f"\n\n**🏆 Comparison Summary**\n\n"
+                    
+                    for site_name, site_data in summary["sites"].items():
+                        summary_message += f"**{site_name}:**\n"
+                        summary_message += f"  • Found {site_data['count']} products\n"
+                        if site_data.get("price_range", {}).get("min"):
+                            summary_message += f"  • Price range: ₹{site_data['price_range']['min']:,.0f} - ₹{site_data['price_range']['max']:,.0f}\n"
+                        if site_data.get("avg_price"):
+                            summary_message += f"  • Average price: ₹{site_data['avg_price']:,.0f}\n"
+                        if site_data.get("avg_rating"):
+                            summary_message += f"  • Average rating: {site_data['avg_rating']:.1f}⭐\n"
+                        summary_message += "\n"
+                    
+                    if summary.get("best_overall_deal"):
+                        deal = summary["best_overall_deal"]
+                        summary_message += f"\n**💰 Best Deal:** {deal.get('name', 'Product')} on **{deal['site']}** at **₹{deal['price']:,.0f}**"
+                        if deal.get("rating"):
+                            summary_message += f" ({deal['rating']}⭐)"
+                    
+                    if summary.get("lowest_price_site"):
+                        summary_message += f"\n\n**Lowest Prices:** {summary['lowest_price_site']} generally has better prices"
+                    
+                    if summary.get("highest_rated_site"):
+                        summary_message += f"\n**Best Ratings:** {summary['highest_rated_site']} has higher-rated products"
+                    
+                    # Send comparison summary
+                    await websocket.send_json({
+                        "type": "comparison_summary",
+                        "summary": summary,
+                        "message": summary_message
+                    })
+                    
+                    # Clear comparison state
+                    manager.session_states[session_id]["enable_comparison"] = False
+                    manager.session_states[session_id]["comparison_results"] = {}
+            
             # Cleanup
             try:
                 await browser_agent.close()
