@@ -47,7 +47,7 @@ The **Quash Browser Control Agent** is an enterprise-grade conversational browse
 - **Real Browser Control**: Uses Playwright for reliable, production-grade browser automation
 - **Live Streaming**: WebSocket-based real-time action updates and progress tracking
 - **Intelligent Extraction**: Extracts structured data from any website automatically
-- **Multi-Site Support**: Built-in support for Flipkart, Amazon, Google Maps, Zomato, Swiggy, and more
+- **Multi-Site Support**: Built-in support for Flipkart, Amazon, Google Maps and Swiggy 
 - **Comparison Engine**: Compare products across multiple e-commerce sites simultaneously
 - **Smart Form Filling**: AI-powered form field detection and intelligent value generation
 - **Robust Error Handling**: Automatic retries, fallback strategies, and graceful degradation
@@ -138,7 +138,7 @@ The **Quash Browser Control Agent** is an enterprise-grade conversational browse
   <em>Live action cards showing execution progress</em>
 </p>
 
-### Local Discovery (Google Maps/Zomato)
+### Local Discovery (Google Maps/Swiggy)
 <p align="center">
   <img src="frontend/public/local1.png" alt="Local Search 1" width="800"/>
   <br/>
@@ -457,11 +457,12 @@ Current test coverage includes:
 - [ ] Product search on Flipkart
 - [ ] Product search on Amazon
 - [ ] Multi-site comparison
-- [ ] Local place search on Google Maps
-- [ ] Local place search on Zomato
+- [ ] Local/food place search on Google Maps
+- [ ] Food place search on Swiggy
 - [ ] Form filling
 - [ ] Price filtering
 - [ ] Rating filtering
+- [ ] URL Fetch for concept from youtube/google
 - [ ] Error handling (invalid URL)
 - [ ] Error handling (element not found)
 
