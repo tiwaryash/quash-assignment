@@ -115,7 +115,7 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                     try:
                         await websocket.send_json({
                             "type": "message",
-                            "message": "⚡ Using stealth mode for Swiggy...",
+                            "message": "Using stealth mode for Swiggy...",
                             "level": "info"
                         })
                         
@@ -174,7 +174,7 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                         
                         await websocket.send_json({
                             "type": "message",
-                            "message": f"🔍 Searching for '{query}' in {location}...",
+                            "message": f"Searching for '{query}' in {location}...",
                             "level": "info"
                         })
                         
@@ -317,7 +317,7 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
             # SwiggyHandler will send real-time action_status updates as steps execute
             await websocket.send_json({
                 "type": "message",
-                "message": "⚡ Using optimized Swiggy search with stealth mode...",
+                "message": "Using optimized Swiggy search with stealth mode...",
                 "level": "info"
             })
             
@@ -476,7 +476,7 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
             # LLM has generated the plan, now use optimized Zomato execution
             await websocket.send_json({
                 "type": "message",
-                "message": "⚡ Using optimized Zomato search with stealth mode...",
+                "message": "Using optimized Zomato search with stealth mode...",
                 "level": "info"
             })
             
@@ -1634,7 +1634,7 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                     
                     if suggestions:
                         error_data["suggestions"] = suggestions
-                        error_msg += f"\n💡 Try these selectors instead: {', '.join(suggestions[:3])}"
+                        error_msg += f"\nTry these selectors instead: {', '.join(suggestions[:3])}"
                     
                     await websocket.send_json(error_data)
                     

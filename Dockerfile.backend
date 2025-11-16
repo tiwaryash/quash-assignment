@@ -2,7 +2,6 @@ FROM python:3.11-slim
 
 WORKDIR /app
 
-# Need these for Playwright to work properly
 RUN apt-get update && apt-get install -y \
     wget gnupg ca-certificates fonts-liberation \
     libasound2 libatk-bridge2.0-0 libatk1.0-0 libatspi2.0-0 \
@@ -15,7 +14,7 @@ RUN apt-get update && apt-get install -y \
 COPY backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Playwright needs chromium and its deps
+# Playwright for chromium and its deps
 RUN playwright install chromium && playwright install-deps chromium
 
 # Copy app code

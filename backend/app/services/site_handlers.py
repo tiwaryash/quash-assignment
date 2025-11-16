@@ -1041,7 +1041,7 @@ class SwiggyHandler:
                         "details": extract_action if extract_action else {"action": "extract", "limit": limit, "description": "Extract restaurant data"}
                     })
             else:
-                print(f"  ⚠️ Restaurants button not found, continuing anyway...")
+                print(f"  Restaurants button not found, continuing anyway...")
                 if websocket:
                     step_num = 6
                     if plan and click_restaurants_action:
@@ -1737,7 +1737,7 @@ class ZomatoHandler:
                         "result": {"status": "success"}
                     })
             else:
-                print(f"⚠️ Location dropdown not found, trying to type directly...")
+                print(f"Location dropdown not found, trying to type directly...")
             
             # STEP 3: Type location in the dropdown input
             type_location_action = None
@@ -1818,7 +1818,7 @@ class ZomatoHandler:
                         "result": {"status": "success"}
                     })
             else:
-                print(f"⚠️ Location input not found")
+                print(f"Location input not found")
             
             # STEP 4: Select location suggestion
             click_location_suggestion_action = None
@@ -1905,7 +1905,7 @@ class ZomatoHandler:
                         "result": {"status": "success"}
                     })
             else:
-                print(f"⚠️ No location suggestion found, continuing...")
+                print(f"No location suggestion found, continuing...")
             
             # STEP 5: Type food query
             type_food_action = None
@@ -1986,7 +1986,7 @@ class ZomatoHandler:
                         "result": {"status": "success"}
                     })
             else:
-                print(f"⚠️ Food search input not found")
+                print(f"Food search input not found")
             
             # STEP 6: Click first dish suggestion
             click_dish_action = None
@@ -2059,7 +2059,7 @@ class ZomatoHandler:
                         "result": {"status": "success"}
                     })
             else:
-                print(f"⚠️ No dish suggestion found, pressing Enter...")
+                print(f"No dish suggestion found, pressing Enter...")
                 if food_search_input:
                     await food_search_input.press("Enter")
                     await asyncio.sleep(3)
