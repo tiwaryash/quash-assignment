@@ -360,15 +360,17 @@ class BrowserAgent:
         
         Returns: {"status":"success","data":[{name, rating, cuisine, location, price, url}]}
         """
-        # For Swiggy, always use stealth mode
-        if not self.page:
-            await self.start(use_stealth=True)
-            self._stealth_enabled = True
-        elif not hasattr(self, '_stealth_enabled') or not self._stealth_enabled:
-            # Restart with stealth mode
-            await self.close()
-            await self.start(use_stealth=True)
-            self._stealth_enabled = True
+        # For Swiggy, always start with a fresh browser to avoid stale state
+        # Close existing browser if it exists to ensure clean state
+        if self.page:
+            try:
+                await self.close()
+            except:
+                pass
+        
+        # Start fresh browser with stealth mode
+        await self.start(use_stealth=True)
+        self._stealth_enabled = True
         
         total_steps = len(plan) if plan else 7
         return await SwiggyHandler.search(self.page, self.context, query, location, limit, websocket=websocket, session_id=session_id, total_steps=total_steps, plan=plan)

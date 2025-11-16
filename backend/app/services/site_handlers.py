@@ -620,22 +620,42 @@ class SwiggyHandler:
                                 ]
                                 
                                 first_location_suggestion = None
-                                for selector in suggestion_selectors:
-                                    try:
-                                        suggestions = await page.query_selector_all(selector)
-                                        if len(suggestions) > 0:
-                                            # Skip "Use my current location" - find first actual location
-                                            for suggestion in suggestions:
-                                                text = await suggestion.text_content()
-                                                if text and "Use my current location" not in text.strip() and len(text.strip()) > 5:
-                                                    # Also check if it looks like a location (contains city/area name)
-                                                    if any(word in text for word in ["Layout", "Bengaluru", "Bangalore", "Karnataka", "India", "Road", "Sector"]):
+                                
+                                # Check if user wants "near me" or "current location"
+                                location_lower = location.lower() if location else ""
+                                use_current_location = any(phrase in location_lower for phrase in ["near me", "current location", "my location", "here"])
+                                
+                                if use_current_location:
+                                    # User wants current location - select index 0 ("Use my current location")
+                                    for selector in suggestion_selectors:
+                                        try:
+                                            suggestions = await page.query_selector_all(selector)
+                                            if len(suggestions) > 0:
+                                                for suggestion in suggestions:
+                                                    text = await suggestion.text_content()
+                                                    if text and "Use my current location" in text.strip():
                                                         first_location_suggestion = suggestion
                                                         break
-                                            if first_location_suggestion:
-                                                break
-                                    except:
-                                        continue
+                                                if first_location_suggestion:
+                                                    break
+                                        except:
+                                            continue
+                                else:
+                                    # User specified a location - find first actual location (skip "Use my current location")
+                                    for selector in suggestion_selectors:
+                                        try:
+                                            suggestions = await page.query_selector_all(selector)
+                                            if len(suggestions) > 0:
+                                                for suggestion in suggestions:
+                                                    text = await suggestion.text_content()
+                                                    if text and "Use my current location" not in text.strip() and len(text.strip()) > 5:
+                                                        # This is the first actual location suggestion
+                                                        first_location_suggestion = suggestion
+                                                        break
+                                                if first_location_suggestion:
+                                                    break
+                                        except:
+                                            continue
                                 
                                 if first_location_suggestion:
                                     # Click the first location suggestion

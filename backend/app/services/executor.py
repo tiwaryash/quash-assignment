@@ -308,50 +308,59 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                 "level": "info"
             })
             
-            # Extract query and location from original instruction
-            original_instruction = manager.session_states.get(session_id, {}).get("original_instruction", instruction)
+            # Extract location and food query from LLM-generated plan
+            # The LLM has already optimized the queries in the plan actions
+            location = None
+            query = None
             
-            # Clean up the query - remove common prefixes and "on swiggy"
-            query = original_instruction
-            query_lower = query.lower()
+            # Find location from the first "type" action (should be location input)
+            for action in plan:
+                if action.get("action") == "type":
+                    action_text = action.get("text", "")
+                    action_selector = action.get("selector", "")
+                    # Check if this is the location input (has "location" in selector or placeholder)
+                    if "location" in action_selector.lower() or "delivery" in action_selector.lower():
+                        location = action_text.strip()
+                        break
             
-            # Remove prefixes
-            prefixes = ["find", "search for", "show me", "get me", "look for"]
-            for prefix in prefixes:
-                if query_lower.startswith(prefix):
-                    query = query[len(prefix):].strip()
-                    query_lower = query.lower()
-                    break
+            # Find food query from the second "type" action (should be food search)
+            for action in plan:
+                if action.get("action") == "type":
+                    action_text = action.get("text", "")
+                    action_selector = action.get("selector", "")
+                    # Check if this is the food search input (has "restaurant" or "search" in selector)
+                    if ("restaurant" in action_selector.lower() or "search" in action_selector.lower()) and action_text != location:
+                        query = action_text.strip()
+                        break
             
-            # Remove "on swiggy" or "using swiggy" suffix
-            for suffix in ["on swiggy", "using swiggy", "via swiggy", "from swiggy"]:
-                if query_lower.endswith(suffix):
-                    query = query[:-len(suffix)].strip()
-                    break
+            # Fallback: if not found in plan, extract from original instruction
+            if not location or not query:
+                original_instruction = manager.session_states.get(session_id, {}).get("original_instruction", instruction)
+                
+                # Extract location from query
+                location_match = re.search(r'(?:in|near|at)\s+([A-Za-z\s]+)', original_instruction, re.IGNORECASE)
+                if not location:
+                    location = location_match.group(1).strip() if location_match else "HSR Layout"
+                
+                # Extract food query
+                if not query:
+                    # Remove location from query to get just the food item
+                    if location_match:
+                        query = re.sub(r'\s*(?:in|near|at)\s+[A-Za-z\s]+', '', original_instruction, flags=re.IGNORECASE).strip()
+                    else:
+                        query = original_instruction
+                    
+                    # Remove common words
+                    query = re.sub(r'\b(best|top|good|great|places?|restaurants?)\b', '', query, flags=re.IGNORECASE).strip()
+                    query = query.strip()
+                    
+                    if not query or len(query.split()) == 0:
+                        query = "restaurants"
             
-            # If query is empty or too short, use original
-            if not query or len(query.split()) < 2:
-                query = original_instruction
-            
-            # Extract location from query and clean up query
-            location_match = re.search(r'(?:in|near|at)\s+([A-Za-z\s]+)', query, re.IGNORECASE)
-            location = location_match.group(1).strip() if location_match else "HSR Layout Bangalore"
-            
-            # Remove location from query to get just the food item
-            if location_match:
-                # Remove "in/near/at location" from query
-                query = re.sub(r'\s*(?:in|near|at)\s+[A-Za-z\s]+', '', query, flags=re.IGNORECASE).strip()
-                # Remove common words like "places", "restaurants", "best"
-                query = re.sub(r'\b(best|top|good|great|places?|restaurants?)\b', '', query, flags=re.IGNORECASE).strip()
-                query = query.strip()
-            
-            # If query is empty after cleaning, use a default
-            if not query or len(query.split()) == 0:
-                query = "restaurants"
-            
-            # If location doesn't have city, add Bangalore as default
-            if location and "bangalore" not in location.lower() and "bengaluru" not in location.lower():
-                location = f"{location} Bangalore"
+            # Use location as-is from LLM plan (no automatic city addition)
+            # If user says "near me", SwiggyHandler will select index 0 (current location)
+            if not location:
+                location = "HSR Layout"
             
             # Get extraction limit from plan
             extraction_limit = 10
@@ -429,6 +438,14 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                     "type": "error",
                     "message": f"{error_message}. {suggestion}"
                 })
+            
+            # Close browser after Swiggy search to ensure fresh state for next search
+            # This prevents old location/cookies from interfering with subsequent searches
+            try:
+                await browser_agent.close()
+                print("✓ Browser closed after Swiggy search")
+            except Exception as e:
+                print(f"Note: Could not close browser: {e}")
             
             # Skip normal execution loop
             plan = []

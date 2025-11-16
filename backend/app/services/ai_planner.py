@@ -606,10 +606,16 @@ async def create_action_plan(instruction: str) -> list[dict]:
             context_parts.append('}')
             context_parts.append("")
             context_parts.append("QUERY OPTIMIZATION for Swiggy:")
-            context_parts.append("- Location query: Extract location from user instruction (e.g., 'HSR Layout Bangalore', 'Indiranagar Bangalore')")
+            context_parts.append("- Location query: Extract location from user instruction exactly as mentioned")
+            context_parts.append("  * If user says 'hiranandani estate', use 'hiranandani estate'")
+            context_parts.append("  * If user says 'near me' or 'current location', use 'near me' (system will select index 0)")
+            context_parts.append("  * Only add city if location is ambiguous or user mentioned it (e.g., 'HSR' → 'HSR Layout Bangalore' if needed)")
+            context_parts.append("  * Fix spelling errors if obvious (e.g., 'indiranagar' → 'Indiranagar')")
             context_parts.append("- Food query: Extract food item/type from user instruction (e.g., 'pizza', 'biryani', 'restaurants')")
             context_parts.append("- Remove filler words: 'best', 'top', 'places', 'restaurants' (unless user specifically wants restaurants)")
-            context_parts.append("- If user says 'pizza places in HSR', location='HSR Layout Bangalore', food='pizza'")
+            context_parts.append("- Example: User says 'best pizza places in hiranandani estate'")
+            context_parts.append("  * Location: 'hiranandani estate' (use as-is, no city addition)")
+            context_parts.append("  * Food: 'pizza'")
             
         
     else:
