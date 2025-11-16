@@ -411,7 +411,7 @@ export default function ChatWindow() {
                   {summary?.best_overall_deal && (
                     <div className="mt-6 bg-gradient-to-r from-green-500/20 to-emerald-500/20 rounded-xl p-4 border-2 border-green-500/50">
                       <div className="flex items-center gap-2 mb-3">
-                        <span className="text-2xl">💰</span>
+                        <span className="text-2xl"></span>
                         <span className="font-black text-green-400 text-lg">Best Deal</span>
                       </div>
                       <div className="text-yellow-300 font-semibold">

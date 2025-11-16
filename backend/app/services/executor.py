@@ -1770,7 +1770,7 @@ async def execute_plan(websocket: WebSocket, instruction: str, session_id: str =
                     
                     if summary.get("best_overall_deal"):
                         deal = summary["best_overall_deal"]
-                        summary_message += f"\n**💰 Best Deal:** {deal.get('name', 'Product')} on **{deal['site']}** at **₹{deal['price']:,.0f}**"
+                        summary_message += f"\n** Best Deal:** {deal.get('name', 'Product')} on **{deal['site']}** at **₹{deal['price']:,.0f}**"
                         if deal.get("rating"):
                             summary_message += f" ({deal['rating']}⭐)"
                     

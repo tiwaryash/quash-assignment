@@ -1,7 +1,8 @@
 'use client';
 
 import ChatWindow from './components/ChatWindow';
-import { Bot, Sparkles, Zap } from 'lucide-react';
+import AnimatedGlobe from './components/AnimatedGlobe';
+import { Zap } from 'lucide-react';
 
 export default function Home() {
   return (
@@ -22,8 +23,8 @@ export default function Home() {
           <div className="flex items-center justify-center gap-3 mb-2">
             <div className="relative">
               <div className="absolute inset-0 bg-yellow-500/20 rounded-xl blur-lg"></div>
-              <div className="relative bg-gradient-to-br from-yellow-400 to-yellow-600 p-2 rounded-xl">
-                <Bot className="w-7 h-7 text-black" strokeWidth={2.5} />
+              <div className="relative p-2 rounded-xl flex items-center justify-center">
+                <AnimatedGlobe />
               </div>
             </div>
             <h1 className="text-3xl font-black tracking-tight">
@@ -34,7 +35,6 @@ export default function Home() {
           </div>
           
           <div className="flex items-center justify-center gap-2 text-yellow-500/80 text-sm font-medium">
-            <Sparkles className="w-4 h-4" />
             <p>AI-Powered Browser Automation</p>
             <Zap className="w-4 h-4" />
           </div>
